@@ -1,0 +1,29 @@
+# OS / Editor
+.DS_Store
+.vscode/
+
+# Firebase local cache
+.firebase/
+
+# Screenshots / temp
+screenshots/
+
+# Node
+node_modules/
+**/node_modules/
+
+# Builds
+dist/
+**/dist/
+
+# Env files (DO NOT COMMIT)
+.env
+.env.*
+!.env.example
+transbordo-app/.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

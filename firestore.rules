@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role is stored in Firestore (users/{uid}.role).
+    // NOTE: later we should move roles to custom claims for stronger security.
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return isSignedIn() && (myUserDoc().data.role is string) ? myUserDoc().data.role : "OPERADOR";
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myRole() == "ADMIN";
+    }
+
+    function isSupervisorOrAdmin() {
+      return isSignedIn() && (myRole() == "SUPERVISOR" || myRole() == "ADMIN");
+    }
+
+    // USERS
+    // - Self-signup creates users/{uid} with role OPERADOR
+    // - User can update their own profile BUT cannot change role
+    // - Admin can read/update any user (including role changes)
+    match /users/{uid} {
+      allow create: if isSignedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.role == "OPERADOR";
+
+      allow read: if isSignedIn()
+                  && (request.auth.uid == uid || isAdmin());
+
+      allow update: if isSignedIn()
+                    && (
+                      isAdmin()
+                      || (
+                        request.auth.uid == uid
+                        // prevent privilege escalation:
+                        && request.resource.data.role == resource.data.role
+                      )
+                    );
+
+      allow delete: if false;
+    }
+
+    // CLIENTS
+    // Dropdown options for Produtivo -> Cliente.
+    // - Any signed-in user can read (to populate the dropdown)
+    // - Only Admin can create/update
+    // - Delete disabled; use active=false
+    match /clients/{clientId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // EVENTS
+    // Each operation record is stored as a document in /events.
+    // - Operator: can create/read/update only their own events
+    // - Supervisor/Admin: can read/update all events
+    // - Delete disabled (use soft-delete later)
+    match /events/{eventId} {
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+
+      allow read: if isSignedIn()
+                  && (
+                    isSupervisorOrAdmin()
+                    || resource.data.createdBy == request.auth.uid
+                  );
+
+      allow update: if isSignedIn()
+                    && (
+                      isSupervisorOrAdmin()
+                      || resource.data.createdBy == request.auth.uid
+                    );
+
+      allow delete: if false;
+    }
+
+    // Default deny (explicit allow only)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
