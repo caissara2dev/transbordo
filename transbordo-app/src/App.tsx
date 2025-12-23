@@ -536,10 +536,11 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
     setLoadingEvents(true)
     try {
       // Operators can only read their own events by rules; we also query by createdBy for efficiency.
+      // IMPORTANT: Avoid requiring a composite index for (createdBy + orderBy startAt) by sorting client-side.
       const base = collection(db, 'events')
       const q =
         props.user.role === 'OPERADOR'
-          ? query(base, where('createdBy', '==', props.user.uid), orderBy('startAt', 'desc'), limit(2000))
+          ? query(base, where('createdBy', '==', props.user.uid), limit(2000))
           : query(base, orderBy('startAt', 'desc'), limit(2000))
 
       const snap = await getDocs(q)
@@ -571,6 +572,9 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
         })
         .filter(Boolean) as StoredEvent[]
 
+      // Keep the same UI ordering regardless of Firestore query ordering.
+      items.sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+
       setEvents(items)
     } catch (e) {
       setEventsError(e instanceof Error ? e.message : String(e))
@@ -584,6 +588,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
     void loadEvents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.user.uid, props.user.role])
+
 
   function setDraftPatch(patch: Partial<typeof draft>) {
     setDraft((prev) => ({ ...prev, ...patch }))
@@ -725,8 +730,8 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: 16 }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+    <div className="tp-page">
+      <header className="tp-header">
         <div>
           <div style={{ fontWeight: 700 }}>Transbordo</div>
           <div style={{ opacity: 0.8, fontSize: 13 }}>
@@ -736,8 +741,8 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
         <button onClick={props.onLogout}>Sair</button>
       </header>
 
-      <section style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <section className="tp-section">
+        <div className="tp-row-wrap">
           <span style={{ fontWeight: 600 }}>Bomba:</span>
           <button onClick={() => setSelectedPump(1)} style={{ opacity: selectedPump === 1 ? 1 : 0.7 }}>
             1
@@ -747,16 +752,16 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
           </button>
         </div>
 
-        <div style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 12, background: '#fff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+        <div className="tp-card">
+          <div className="tp-card-header">
             <div style={{ fontWeight: 700 }}>Novo lançamento (manual)</div>
             <button disabled={validation.errors.length > 0} onClick={() => void save()} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
               Salvar
             </button>
           </div>
 
-          <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+          <div className="tp-form">
+            <div className="tp-grid-2">
               <label style={{ display: 'grid', gap: 6 }}>
                 Data do turno (dia de início)
                 <input
@@ -776,7 +781,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+            <div className="tp-grid-2">
               <label style={{ display: 'grid', gap: 6 }}>
                 Início (HH:MM)
                 <input
@@ -800,7 +805,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+            <div className="tp-category-grid">
               {categories.map((c) => (
                 <button
                   key={c}
@@ -914,16 +919,16 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
         </div>
 
         {props.user.role === 'ADMIN' ? (
-          <div style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 12, background: '#fff' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="tp-card">
+            <div className="tp-card-header">
               <div style={{ fontWeight: 700 }}>Clientes (Admin)</div>
               <div style={{ fontSize: 12, opacity: 0.75 }}>
                 {loadingClients ? 'Carregando…' : `${clients.length} cadastrado(s)`}
               </div>
             </div>
 
-            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="tp-stack-10">
+              <div className="tp-actions-row">
                 <input
                   value={newClientName}
                   onChange={(e) => setNewClientName(e.target.value)}
@@ -960,11 +965,8 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                   {clients.map((c) => (
                     <div
                       key={c.id}
+                      className="tp-client-row"
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(0, 1fr) auto',
-                        gap: 10,
-                        alignItems: 'center',
                         border: '1px solid rgba(0,0,0,0.12)',
                         borderRadius: 8,
                         padding: 10,
@@ -998,10 +1000,10 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
           </div>
         ) : null}
 
-        <div style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 12, background: '#fff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="tp-card">
+          <div className="tp-card-header">
             <div style={{ fontWeight: 700 }}>Histórico (Firebase)</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="tp-row-wrap">
               <button onClick={() => void loadEvents()} disabled={loadingEvents}>
                 {loadingEvents ? 'Atualizando…' : 'Atualizar'}
               </button>
@@ -1011,7 +1013,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
             </div>
           </div>
 
-          <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 10 }}>
+          <div className="tp-grid-5" style={{ marginTop: 10 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               De
               <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} style={{ padding: 8 }} />
