@@ -40,3 +40,138 @@
 .read-the-docs {
   color: #888;
 }
+
+/* ===== Transbordo App layout helpers (responsive) ===== */
+
+.tp-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+  text-align: left;
+}
+
+.tp-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tp-section {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.tp-row-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tp-card {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.tp-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tp-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.tp-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tp-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tp-stack-10 {
+  display: grid;
+  gap: 10px;
+}
+
+.tp-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tp-actions-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tp-client-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .tp-grid-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  #root {
+    padding: 0;
+  }
+
+  .tp-page {
+    padding: 12px;
+  }
+
+  .tp-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .tp-category-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tp-grid-5 {
+    grid-template-columns: 1fr;
+  }
+
+  .tp-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tp-actions-row > button {
+    width: 100%;
+  }
+
+  .tp-actions-row > input {
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  .tp-client-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
