@@ -754,7 +754,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
 
         <div className="tp-card">
           <div className="tp-card-header">
-            <div style={{ fontWeight: 700 }}>Novo lançamento (manual)</div>
+            <div style={{ fontWeight: 700 }}>Novo lançamento</div>
             <button disabled={validation.errors.length > 0} onClick={() => void save()} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
               Salvar
             </button>
@@ -1002,7 +1002,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
 
         <div className="tp-card">
           <div className="tp-card-header">
-            <div style={{ fontWeight: 700 }}>Histórico (Firebase)</div>
+            <div style={{ fontWeight: 700 }}>Histórico</div>
             <div className="tp-row-wrap">
               <button onClick={() => void loadEvents()} disabled={loadingEvents}>
                 {loadingEvents ? 'Atualizando…' : 'Atualizar'}
