@@ -744,10 +744,24 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
       <section className="tp-section">
         <div className="tp-row-wrap">
           <span style={{ fontWeight: 600 }}>Bomba:</span>
-          <button onClick={() => setSelectedPump(1)} style={{ opacity: selectedPump === 1 ? 1 : 0.7 }}>
+
+          <button
+            type="button"
+            className={`tp-pump-btn ${selectedPump === 1 ? 'tp-pump-btn--active' : ''}`}
+            aria-pressed={selectedPump === 1}
+            onClick={() => setSelectedPump(1)}
+            title={selectedPump === 1 ? 'Bomba 1 (selecionada)' : 'Selecionar Bomba 1'}
+          >
             1
           </button>
-          <button onClick={() => setSelectedPump(2)} style={{ opacity: selectedPump === 2 ? 1 : 0.7 }}>
+
+          <button
+            type="button"
+            className={`tp-pump-btn ${selectedPump === 2 ? 'tp-pump-btn--active' : ''}`}
+            aria-pressed={selectedPump === 2}
+            onClick={() => setSelectedPump(2)}
+            title={selectedPump === 2 ? 'Bomba 2 (selecionada)' : 'Selecionar Bomba 2'}
+          >
             2
           </button>
         </div>
