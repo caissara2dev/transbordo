@@ -15,6 +15,12 @@ service cloud.firestore {
       return isSignedIn() && (myUserDoc().data.role is string) ? myUserDoc().data.role : "OPERADOR";
     }
 
+    // Approval gate:
+    // A user must have users/{uid}.approved == true to use the app (read/write data).
+    function isApproved() {
+      return isSignedIn() && (myUserDoc().data.approved == true);
+    }
+
     function isAdmin() {
       return isSignedIn() && myRole() == "ADMIN";
     }
@@ -28,13 +34,20 @@ service cloud.firestore {
     // - User can update their own profile BUT cannot change role
     // - Admin can read/update any user (including role changes)
     match /users/{uid} {
+      // Self-signup: allow the user to create their own profile doc.
+      // New users must start as OPERADOR and NOT approved.
       allow create: if isSignedIn()
                     && request.auth.uid == uid
-                    && request.resource.data.role == "OPERADOR";
+                    && request.resource.data.role == "OPERADOR"
+                    && request.resource.data.approved == false;
 
+      // Users can read their own doc (to see approval status).
+      // Admins can read any user doc.
       allow read: if isSignedIn()
                   && (request.auth.uid == uid || isAdmin());
 
+      // Admins can update any user doc (including role/approved).
+      // Users can update their own doc but cannot change role or approved.
       allow update: if isSignedIn()
                     && (
                       isAdmin()
@@ -42,6 +55,8 @@ service cloud.firestore {
                         request.auth.uid == uid
                         // prevent privilege escalation:
                         && request.resource.data.role == resource.data.role
+                        // prevent self-approval:
+                        && request.resource.data.approved == resource.data.approved
                       )
                     );
 
@@ -54,8 +69,12 @@ service cloud.firestore {
     // - Only Admin can create/update
     // - Delete disabled; use active=false
     match /clients/{clientId} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin();
+      // Any approved user can read clients (dropdown).
+      allow read: if isApproved();
+
+      // Only approved admins can create/update.
+      allow create, update: if isApproved() && isAdmin();
+
       allow delete: if false;
     }
 
@@ -65,16 +84,16 @@ service cloud.firestore {
     // - Supervisor/Admin: can read/update all events
     // - Delete disabled (use soft-delete later)
     match /events/{eventId} {
-      allow create: if isSignedIn()
+      allow create: if isApproved()
                     && request.resource.data.createdBy == request.auth.uid;
 
-      allow read: if isSignedIn()
+      allow read: if isApproved()
                   && (
                     isSupervisorOrAdmin()
                     || resource.data.createdBy == request.auth.uid
                   );
 
-      allow update: if isSignedIn()
+      allow update: if isApproved()
                     && (
                       isSupervisorOrAdmin()
                       || resource.data.createdBy == request.auth.uid

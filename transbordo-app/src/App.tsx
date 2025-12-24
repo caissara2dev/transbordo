@@ -29,6 +29,7 @@ type User = {
   uid: string
   email: string
   role: Role
+  approved: boolean
 }
 
 type Pump = 1 | 2
@@ -140,17 +141,19 @@ async function ensureUserProfile(firebaseUser: FirebaseUser): Promise<User> {
       {
         email,
         role: defaultRole,
+        approved: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     )
-    return { uid: firebaseUser.uid, email, role: defaultRole }
+    return { uid: firebaseUser.uid, email, role: defaultRole, approved: false }
   }
 
-  const data = snap.data() as Partial<{ email: string; role: Role }>
+  const data = snap.data() as Partial<{ email: string; role: Role; approved: boolean }>
   const role: Role = data.role ?? 'OPERADOR'
-  return { uid: firebaseUser.uid, email: data.email ?? email, role }
+  const approved = data.approved === true
+  return { uid: firebaseUser.uid, email: data.email ?? email, role, approved }
 }
 
 function App() {
@@ -191,7 +194,11 @@ function App() {
         path="/app"
         element={
           user ? (
-            <FieldPage user={user} onLogout={() => signOut(auth)} />
+            user.approved ? (
+              <FieldPage user={user} onLogout={() => signOut(auth)} />
+            ) : (
+              <PendingApproval user={user} onLogout={() => signOut(auth)} />
+            )
           ) : (
             <Navigate to="/login" replace />
           )
@@ -199,6 +206,39 @@ function App() {
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
+  )
+}
+
+function PendingApproval(props: { user: User; onLogout: () => void }) {
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: 24 }}>
+      <h1>Aguardando aprovação</h1>
+      <p style={{ opacity: 0.85 }}>
+        Sua conta foi criada, mas ainda não está aprovada para usar o sistema.
+      </p>
+
+      <div style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 12, background: '#fff' }}>
+        <div style={{ fontWeight: 700 }}>Usuário</div>
+        <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 13 }}>{props.user.email}</div>
+        <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>
+          Status: <b style={{ color: '#b00020' }}>NÃO APROVADO</b>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12, fontSize: 13, opacity: 0.85 }}>
+        <div style={{ fontWeight: 700 }}>Como aprovar (Firebase Console)</div>
+        <ol style={{ margin: '8px 0 0 18px' }}>
+          <li>Firebase Console → Firestore Database</li>
+          <li>Coleção <b>users</b></li>
+          <li>Abra o documento do seu usuário</li>
+          <li>Defina <b>approved = true</b> (e ajuste <b>role</b> se necessário)</li>
+        </ol>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <button onClick={props.onLogout}>Sair</button>
+      </div>
+    </div>
   )
 }
 
