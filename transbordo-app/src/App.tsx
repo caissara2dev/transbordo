@@ -102,6 +102,17 @@ function nowId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+/**
+ * Returns YYYY-MM-DD using the user's local timezone (not UTC).
+ * Avoids the "day shift" bug when using `toISOString().slice(0, 10)` in UTC- offsets.
+ */
+function localISODate(date: Date = new Date()): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function toDateSafe(value: unknown): Date | undefined {
   if (!value) return undefined
   if (value instanceof Date) return value
@@ -382,7 +393,7 @@ function toShiftDateTime(shiftDateISO: string, shift: Shift, totalMinutes: numbe
 }
 
 function FieldPage(props: { user: User; onLogout: () => void }) {
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const todayISO = localISODate()
 
   const [selectedPump, setSelectedPump] = useState<Pump>(1)
 
