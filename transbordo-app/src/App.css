@@ -48,6 +48,11 @@
   margin: 0 auto;
   padding: 16px;
   text-align: left;
+  color: var(--tp-text);
+}
+
+.tp-muted {
+  color: var(--tp-text-muted);
 }
 
 .tp-header {
@@ -64,6 +69,37 @@
   gap: 12px;
 }
 
+.tp-footer {
+  margin-top: 18px;
+  padding: 14px 10px 10px;
+  border-top: 1px solid var(--tp-border);
+  color: var(--tp-text-muted);
+  font-size: 12px;
+}
+
+.tp-footer a {
+  color: var(--tp-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tp-footer a:hover {
+  color: var(--tp-text);
+}
+
+.tp-footer__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.tp-footer__sep {
+  opacity: 0.6;
+}
+
 .tp-row-wrap {
   display: flex;
   gap: 8px;
@@ -72,10 +108,11 @@
 }
 
 .tp-card {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--tp-border);
   border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: var(--tp-surface);
+  color: var(--tp-text);
 }
 
 .tp-card-header {
@@ -115,6 +152,39 @@
   gap: 10px;
 }
 
+/* Themed UI pieces (avoid hard-coded light colors) */
+.tp-category-btn {
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--tp-border);
+  background: var(--tp-surface);
+  color: var(--tp-text);
+}
+
+.tp-category-btn--active {
+  border-color: color-mix(in srgb, var(--tp-primary) 70%, var(--tp-border));
+  background: var(--tp-surface-2);
+}
+
+.tp-event-row {
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--tp-surface);
+  color: var(--tp-text);
+}
+
+.tp-panel-danger {
+  border: 1px solid color-mix(in srgb, var(--tp-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--tp-danger) 10%, transparent);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.tp-danger-text {
+  color: var(--tp-danger);
+}
+
 .tp-actions-row {
   display: flex;
   gap: 8px;
@@ -135,9 +205,9 @@
   padding: 10px 18px;
   border-radius: 10px;
 
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  background: #fff;
-  color: #111;
+  border: 1px solid var(--tp-border-strong);
+  background: var(--tp-control-bg);
+  color: var(--tp-control-text);
 
   font-weight: 800;
   font-size: 16px;
@@ -147,18 +217,18 @@
 }
 
 .tp-pump-btn:hover {
-  border-color: rgba(0, 0, 0, 0.35);
+  border-color: var(--tp-border-strong);
 }
 
 .tp-pump-btn:focus-visible {
-  outline: 3px solid rgba(59, 130, 246, 0.45); /* blue focus ring */
+  outline: 3px solid var(--tp-focus);
   outline-offset: 2px;
 }
 
 .tp-pump-btn--active {
-  background: #2563eb; /* blue-600 */
-  border-color: #1d4ed8; /* blue-700 */
-  color: #fff;
+  background: var(--tp-primary);
+  border-color: var(--tp-primary-strong);
+  color: var(--tp-primary-contrast);
 }
 
 @media (max-width: 900px) {

@@ -23,6 +23,65 @@ import {
 import { auth, db } from './firebase'
 import './App.css'
 
+type ThemeMode = 'system' | 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'tp.theme'
+
+function readThemeMode(): ThemeMode {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY)
+  if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
+  return 'system'
+}
+
+function persistThemeMode(mode: ThemeMode) {
+  localStorage.setItem(THEME_STORAGE_KEY, mode)
+}
+
+function applyThemeMode(mode: ThemeMode) {
+  const root = document.documentElement
+  // When absent: CSS uses prefers-color-scheme
+  if (mode === 'system') root.removeAttribute('data-theme')
+  else root.setAttribute('data-theme', mode)
+}
+
+function ThemeSelect(props: { mode: ThemeMode; onChange: (mode: ThemeMode) => void }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+      Tema
+      <select
+        value={props.mode}
+        onChange={(e) => props.onChange(e.target.value as ThemeMode)}
+        style={{ padding: 8 }}
+        aria-label="Tema"
+        title="Tema: Sistema/Claro/Escuro"
+      >
+        <option value="system">Sistema</option>
+        <option value="light">Claro</option>
+        <option value="dark">Escuro</option>
+      </select>
+    </label>
+  )
+}
+
+function AppFooter() {
+  const year = new Date().getFullYear()
+  return (
+    <footer className="tp-footer">
+      <div className="tp-footer__row">
+        <span>
+          <b>Criador:</b> Matheus Raimundo
+        </span>
+        <span className="tp-footer__sep">•</span>
+        <span>© {year} Matheus Raimundo. Todos os direitos reservados.</span>
+        <span className="tp-footer__sep">•</span>
+        <a href="https://wa.me/5513997112838" target="_blank" rel="noreferrer">
+          Suporte: WhatsApp +55 13 99711-2838
+        </a>
+      </div>
+    </footer>
+  )
+}
+
 type Role = 'OPERADOR' | 'SUPERVISOR' | 'ADMIN'
 
 type User = {
@@ -171,6 +230,13 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
 
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readThemeMode())
+
+  useEffect(() => {
+    applyThemeMode(themeMode)
+    persistThemeMode(themeMode)
+  }, [themeMode])
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
@@ -200,15 +266,34 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to={user ? '/app' : '/login'} replace />} />
-      <Route path="/login" element={user ? <Navigate to="/app" replace /> : <LoginPage />} />
+      <Route
+        path="/login"
+        element={
+          user ? (
+            <Navigate to="/app" replace />
+          ) : (
+            <LoginPage themeMode={themeMode} onThemeModeChange={setThemeMode} />
+          )
+        }
+      />
       <Route
         path="/app"
         element={
           user ? (
             user.approved ? (
-              <FieldPage user={user} onLogout={() => signOut(auth)} />
+              <FieldPage
+                user={user}
+                onLogout={() => signOut(auth)}
+                themeMode={themeMode}
+                onThemeModeChange={setThemeMode}
+              />
             ) : (
-              <PendingApproval user={user} onLogout={() => signOut(auth)} />
+              <PendingApproval
+                user={user}
+                onLogout={() => signOut(auth)}
+                themeMode={themeMode}
+                onThemeModeChange={setThemeMode}
+              />
             )
           ) : (
             <Navigate to="/login" replace />
@@ -220,19 +305,28 @@ function App() {
   )
 }
 
-function PendingApproval(props: { user: User; onLogout: () => void }) {
+function PendingApproval(props: {
+  user: User
+  onLogout: () => void
+  themeMode: ThemeMode
+  onThemeModeChange: (mode: ThemeMode) => void
+}) {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: 24 }}>
-      <h1>Aguardando aprovação</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>Aguardando aprovação</h1>
+        <ThemeSelect mode={props.themeMode} onChange={props.onThemeModeChange} />
+      </div>
+
       <p style={{ opacity: 0.85 }}>
         Sua conta foi criada, mas ainda não está aprovada para usar o sistema.
       </p>
 
-      <div style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 12, background: '#fff' }}>
+      <div className="tp-card">
         <div style={{ fontWeight: 700 }}>Usuário</div>
         <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 13 }}>{props.user.email}</div>
         <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>
-          Status: <b style={{ color: '#b00020' }}>NÃO APROVADO</b>
+          Status: <b style={{ color: 'var(--tp-danger)' }}>NÃO APROVADO</b>
         </div>
       </div>
 
@@ -249,6 +343,8 @@ function PendingApproval(props: { user: User; onLogout: () => void }) {
       <div style={{ marginTop: 16 }}>
         <button onClick={props.onLogout}>Sair</button>
       </div>
+
+      <AppFooter />
     </div>
   )
 }
@@ -262,7 +358,7 @@ function NotFound() {
   )
 }
 
-function LoginPage() {
+function LoginPage(props: { themeMode: ThemeMode; onThemeModeChange: (mode: ThemeMode) => void }) {
   const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -299,8 +395,12 @@ function LoginPage() {
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: 24 }}>
-      <h1>Transbordo • Login</h1>
-      <p style={{ opacity: 0.8, marginTop: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>Transbordo • Login</h1>
+        <ThemeSelect mode={props.themeMode} onChange={props.onThemeModeChange} />
+      </div>
+
+      <p style={{ opacity: 0.8, marginTop: 8 }}>
         Acesso restrito: entre com Email/Senha (Firebase Auth). Se não tiver conta, crie uma.
       </p>
 
@@ -327,7 +427,7 @@ function LoginPage() {
       </label>
 
       {error ? (
-        <div style={{ marginTop: 12, color: '#b00020', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+        <div style={{ marginTop: 12, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
           {error}
         </div>
       ) : null}
@@ -355,6 +455,8 @@ function LoginPage() {
       <p style={{ opacity: 0.7, fontSize: 12, marginTop: 12 }}>
         Observação: por padrão, novos usuários entram como <b>OPERADOR</b> e depois podem ser promovidos por um Admin.
       </p>
+
+      <AppFooter />
     </div>
   )
 }
@@ -392,7 +494,12 @@ function toShiftDateTime(shiftDateISO: string, shift: Shift, totalMinutes: numbe
   return d
 }
 
-function FieldPage(props: { user: User; onLogout: () => void }) {
+function FieldPage(props: {
+  user: User
+  onLogout: () => void
+  themeMode: ThemeMode
+  onThemeModeChange: (mode: ThemeMode) => void
+}) {
   const todayISO = localISODate()
 
   const [selectedPump, setSelectedPump] = useState<Pump>(1)
@@ -789,7 +896,11 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
             {props.user.email} • {props.user.role}
           </div>
         </div>
-        <button onClick={props.onLogout}>Sair</button>
+
+        <div className="tp-row-wrap">
+          <ThemeSelect mode={props.themeMode} onChange={props.onThemeModeChange} />
+          <button onClick={props.onLogout}>Sair</button>
+        </div>
       </header>
 
       <section className="tp-section">
@@ -875,12 +986,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                 <button
                   key={c}
                   onClick={() => setDraftPatch({ category: c })}
-                  style={{
-                    padding: 12,
-                    textAlign: 'left',
-                    border: '1px solid rgba(0,0,0,0.12)',
-                    background: draft.category === c ? '#e9eefc' : '#fff',
-                  }}
+                  className={`tp-category-btn ${draft.category === c ? 'tp-category-btn--active' : ''}`}
                 >
                   <div style={{ fontWeight: 700 }}>{c}</div>
                   <div style={{ fontSize: 12, opacity: 0.75 }}>
@@ -906,9 +1012,13 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                       </option>
                     ))}
                   </select>
-                  {clientsError ? <span style={{ color: '#b00020', fontSize: 12 }}>{clientsError}</span> : null}
+                  {clientsError ? (
+                    <span style={{ fontSize: 12 }} className="tp-danger-text">
+                      {clientsError}
+                    </span>
+                  ) : null}
                   {!clientsError && !loadingClients && activeClients.length === 0 ? (
-                    <span style={{ color: '#b00020', fontSize: 12 }}>
+                    <span style={{ fontSize: 12 }} className="tp-danger-text">
                       Nenhum cliente ativo cadastrado. Um Admin precisa cadastrar em “Clientes”.
                     </span>
                   ) : null}
@@ -923,7 +1033,9 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                     style={{ padding: 10 }}
                   />
                   {draft.truckPlate && !isMercosulOrOldPlate(draft.truckPlate) && (
-                    <span style={{ color: '#b00020', fontSize: 12 }}>Formato inválido de placa.</span>
+                    <span style={{ fontSize: 12 }} className="tp-danger-text">
+                      Formato inválido de placa.
+                    </span>
                   )}
                 </label>
 
@@ -936,7 +1048,9 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                     style={{ padding: 10 }}
                   />
                   {draft.containerId && !isContainerId(draft.containerId) && (
-                    <span style={{ color: '#b00020', fontSize: 12 }}>Formato inválido de container.</span>
+                    <span style={{ fontSize: 12 }} className="tp-danger-text">
+                      Formato inválido de container.
+                    </span>
                   )}
                 </label>
 
@@ -965,9 +1079,11 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
             )}
 
             {validation.errors.length > 0 && (
-              <div style={{ border: '1px solid rgba(176,0,32,0.35)', background: 'rgba(176,0,32,0.06)', borderRadius: 8, padding: 10 }}>
-                <div style={{ fontWeight: 700, color: '#b00020' }}>Pendências</div>
-                <ul style={{ margin: '8px 0 0 18px', color: '#b00020' }}>
+              <div className="tp-panel-danger">
+                <div style={{ fontWeight: 700 }} className="tp-danger-text">
+                  Pendências
+                </div>
+                <ul style={{ margin: '8px 0 0 18px' }} className="tp-danger-text">
                   {validation.errors.map((e) => (
                     <li key={e}>{e}</li>
                   ))}
@@ -976,7 +1092,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
             )}
 
             {eventsError ? (
-              <div style={{ marginTop: 6, color: '#b00020', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+              <div style={{ marginTop: 6, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
                 {eventsError}
               </div>
             ) : null}
@@ -1021,7 +1137,11 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                 </button>
               </div>
 
-              {clientsError ? <div style={{ color: '#b00020', fontSize: 13, whiteSpace: 'pre-wrap' }}>{clientsError}</div> : null}
+              {clientsError ? (
+                <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+                  {clientsError}
+                </div>
+              ) : null}
 
               {clients.length === 0 ? (
                 <div style={{ opacity: 0.75, fontSize: 13 }}>Nenhum cliente cadastrado ainda.</div>
@@ -1032,9 +1152,11 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
                       key={c.id}
                       className="tp-client-row"
                       style={{
-                        border: '1px solid rgba(0,0,0,0.12)',
+                        border: '1px solid var(--tp-border)',
                         borderRadius: 8,
                         padding: 10,
+                        background: 'var(--tp-surface)',
+                        color: 'var(--tp-text)',
                       }}
                     >
                       <input
@@ -1131,7 +1253,7 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
           ) : (
             <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
               {filteredEvents.slice(0, 200).map((e) => (
-                <div key={e.id} style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: 10, background: '#fff' }}>
+                <div key={e.id} className="tp-event-row">
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ fontWeight: 700 }}>
                       {e.shiftDate} • {e.shift} • B{e.pump} • {e.category}
@@ -1177,6 +1299,8 @@ function FieldPage(props: { user: User; onLogout: () => void }) {
           )}
         </div>
       </section>
+
+      <AppFooter />
     </div>
   )
 }

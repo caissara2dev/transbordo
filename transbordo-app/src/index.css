@@ -1,11 +1,41 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Theme tokens (default = light) */
+  --tp-bg: #f6f7f9;
+  --tp-surface: #ffffff;
+  --tp-surface-2: #f1f5f9;
+
+  --tp-text: #0f172a; /* slate-900 */
+  --tp-text-muted: rgba(15, 23, 42, 0.72);
+
+  --tp-border: rgba(15, 23, 42, 0.16);
+  --tp-border-strong: rgba(15, 23, 42, 0.28);
+
+  --tp-primary: #2563eb; /* blue-600 */
+  --tp-primary-strong: #1d4ed8; /* blue-700 */
+  --tp-primary-contrast: #ffffff;
+
+  --tp-danger: #b00020;
+
+  --tp-control-bg: #ffffff;
+  --tp-control-text: #0f172a;
+  --tp-control-placeholder: rgba(15, 23, 42, 0.5);
+
+  --tp-button-bg: #0f172a;
+  --tp-button-text: #ffffff;
+  --tp-button-border: rgba(255, 255, 255, 0.06);
+
+  --tp-focus: rgba(59, 130, 246, 0.45);
+
+  --tp-link: #2563eb;
+  --tp-link-hover: #1d4ed8;
+
+  color-scheme: light;
+  color: var(--tp-text);
+  background-color: var(--tp-bg);
+
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -13,56 +43,132 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* System dark mode (only when user has not overridden) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --tp-bg: #0b1220;
+    --tp-surface: #0f172a;
+    --tp-surface-2: #111827;
+
+    --tp-text: rgba(255, 255, 255, 0.92);
+    --tp-text-muted: rgba(255, 255, 255, 0.7);
+
+    --tp-border: rgba(255, 255, 255, 0.14);
+    --tp-border-strong: rgba(255, 255, 255, 0.24);
+
+    --tp-control-bg: #111827;
+    --tp-control-text: rgba(255, 255, 255, 0.92);
+    --tp-control-placeholder: rgba(255, 255, 255, 0.45);
+
+    --tp-button-bg: #111827;
+    --tp-button-text: rgba(255, 255, 255, 0.92);
+    --tp-button-border: rgba(255, 255, 255, 0.14);
+
+    color-scheme: dark;
+  }
+}
+
+/* Explicit overrides */
+:root[data-theme='dark'] {
+  --tp-bg: #0b1220;
+  --tp-surface: #0f172a;
+  --tp-surface-2: #111827;
+
+  --tp-text: rgba(255, 255, 255, 0.92);
+  --tp-text-muted: rgba(255, 255, 255, 0.7);
+
+  --tp-border: rgba(255, 255, 255, 0.14);
+  --tp-border-strong: rgba(255, 255, 255, 0.24);
+
+  --tp-control-bg: #111827;
+  --tp-control-text: rgba(255, 255, 255, 0.92);
+  --tp-control-placeholder: rgba(255, 255, 255, 0.45);
+
+  --tp-button-bg: #111827;
+  --tp-button-text: rgba(255, 255, 255, 0.92);
+  --tp-button-border: rgba(255, 255, 255, 0.14);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 a {
-  font-weight: 500;
-  color: #646cff;
+  font-weight: 600;
+  color: var(--tp-link);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: var(--tp-link-hover);
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--tp-text);
+  background-color: var(--tp-bg);
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* Form controls (consistent between light/dark) */
+input,
+select,
+textarea {
+  color: var(--tp-control-text);
+  background: var(--tp-control-bg);
+  border: 1px solid var(--tp-border);
+  border-radius: 10px;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--tp-control-placeholder);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--tp-focus);
+  outline-offset: 2px;
+}
+
+/* Base button */
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
+  border-radius: 10px;
+  border: 1px solid var(--tp-button-border);
   padding: 0.6em 1.2em;
   font-size: 1em;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: var(--tp-button-bg);
+  color: var(--tp-button-text);
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    color 0.2s,
+    opacity 0.2s;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+button:hover {
+  border-color: var(--tp-border-strong);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
