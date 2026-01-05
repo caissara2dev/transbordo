@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import {
   createUserWithEmailAndPassword,
@@ -461,6 +461,83 @@ function LoginPage(props: { themeMode: ThemeMode; onThemeModeChange: (mode: Them
   )
 }
 
+const TIME_SLOTS_EMPTY: string = '____'
+
+function slotsToMaskedHHMM(slots: string): string {
+  // slots is 4 chars: HHMM, using '_' for missing digits
+  return `${slots[0] ?? '_'}${slots[1] ?? '_'}:${slots[2] ?? '_'}${slots[3] ?? '_'}`
+}
+
+function slotsToHHMM(slots: string): string | '' {
+  if (slots.length !== 4) return ''
+  if (slots.includes('_')) return ''
+  const hh = Number(slots.slice(0, 2))
+  const mm = Number(slots.slice(2, 4))
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return ''
+  if (hh < 0 || hh > 23) return ''
+  if (mm < 0 || mm > 59) return ''
+  return `${slots.slice(0, 2)}:${slots.slice(2, 4)}`
+}
+
+function canSetSlotDigit(slots: string, idx: number, digit: string): boolean {
+  // idx: 0..3, digit: '0'..'9'
+  if (!/^\d$/.test(digit)) return false
+
+  // Build prospective slots
+  const next = slots.split('')
+  next[idx] = digit
+
+  // Validate partially (reject impossible times early)
+  const h0 = next[0]
+  const h1 = next[1]
+  const m0 = next[2]
+  // const m1 = next[3]
+
+  // Hours tens
+  if (h0 !== '_' && Number(h0) > 2) return false
+
+  // Hours ones
+  if (h0 !== '_' && h1 !== '_') {
+    const hh = Number(h0 + h1)
+    if (hh > 23) return false
+  }
+
+  // Minutes tens
+  if (m0 !== '_' && Number(m0) > 5) return false
+
+  // Full validation when complete
+  if (!next.includes('_')) {
+    const hh = Number(next[0] + next[1])
+    const mm = Number(next[2] + next[3])
+    if (hh > 23) return false
+    if (mm > 59) return false
+  }
+
+  return true
+}
+
+function lastFilledIndex(slots: string): number {
+  for (let i = 3; i >= 0; i--) {
+    if (slots[i] !== '_') return i
+  }
+  return -1
+}
+
+function nextEmptyIndex(slots: string): number {
+  return slots.indexOf('_')
+}
+
+function slotIndexToCaretPos(idx: number): number {
+  // Mask is "HH:MM" (len 5). Editable positions are 0,1,3,4.
+  // Slot index 0..3 maps to caret positions 0,1,3,4.
+  return idx <= 1 ? idx : idx + 1
+}
+
+function caretPosForNextInput(slots: string): number {
+  const next = nextEmptyIndex(slots)
+  return next === -1 ? 5 : slotIndexToCaretPos(next)
+}
+
 function parseHHMM(value: string): { hours: number; minutes: number; totalMinutes: number } | null {
   const v = value.trim()
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v)
@@ -559,6 +636,129 @@ function FieldPage(props: {
     containerId: '',
     notes: '',
   })
+
+  // Rigid time mask inputs (HH:MM), internally stores 4 slots: HHMM with '_' placeholders.
+  const [startSlots, setStartSlots] = useState<string>(TIME_SLOTS_EMPTY)
+  const [endSlots, setEndSlots] = useState<string>(TIME_SLOTS_EMPTY)
+
+  const startInputRef = useRef<HTMLInputElement | null>(null)
+  const endInputRef = useRef<HTMLInputElement | null>(null)
+
+  function setDraftPatch(patch: Partial<typeof draft>) {
+    setDraft((prev) => ({ ...prev, ...patch }))
+  }
+
+  function syncDraftTimeFromSlots(kind: 'start' | 'end', slots: string) {
+    const hhmm = slotsToHHMM(slots)
+    if (kind === 'start') setDraftPatch({ startHHMM: hhmm })
+    else setDraftPatch({ endHHMM: hhmm })
+  }
+
+  function applySlots(kind: 'start' | 'end', slots: string) {
+    if (kind === 'start') setStartSlots(slots)
+    else setEndSlots(slots)
+    syncDraftTimeFromSlots(kind, slots)
+    const ref = kind === 'start' ? startInputRef : endInputRef
+    requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      const pos = caretPosForNextInput(slots)
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  function handleMaskedTimeFocus(kind: 'start' | 'end') {
+    const ref = kind === 'start' ? startInputRef : endInputRef
+    const slots = kind === 'start' ? startSlots : endSlots
+    requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      const pos = caretPosForNextInput(slots)
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  function appendDigit(kind: 'start' | 'end', digit: string) {
+    const slots = kind === 'start' ? startSlots : endSlots
+
+    // If already complete, start a fresh entry
+    if (!slots.includes('_')) {
+      const fresh = TIME_SLOTS_EMPTY
+      if (!canSetSlotDigit(fresh, 0, digit)) return
+      const next = fresh.split('')
+      next[0] = digit
+      applySlots(kind, next.join(''))
+      return
+    }
+
+    const idx = nextEmptyIndex(slots)
+    if (idx === -1) return
+    if (!canSetSlotDigit(slots, idx, digit)) return
+
+    const next = slots.split('')
+    next[idx] = digit
+    applySlots(kind, next.join(''))
+  }
+
+  function backspaceDigit(kind: 'start' | 'end') {
+    const slots = kind === 'start' ? startSlots : endSlots
+    const idx = lastFilledIndex(slots)
+    if (idx === -1) return
+    const next = slots.split('')
+    next[idx] = '_'
+    applySlots(kind, next.join(''))
+  }
+
+  function clearAll(kind: 'start' | 'end') {
+    applySlots(kind, TIME_SLOTS_EMPTY)
+  }
+
+  function handleMaskedTimeKeyDown(kind: 'start' | 'end', e: KeyboardEvent<HTMLInputElement>) {
+    // Allow browser shortcuts (copy/paste/select all)
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+
+    if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') return
+
+    if (e.key === 'Backspace') {
+      e.preventDefault()
+      backspaceDigit(kind)
+      return
+    }
+
+    if (e.key === 'Delete') {
+      e.preventDefault()
+      clearAll(kind)
+      return
+    }
+
+    if (/^\d$/.test(e.key)) {
+      e.preventDefault()
+      appendDigit(kind, e.key)
+      return
+    }
+
+    // Block any other key from mutating the value (including ':')
+    e.preventDefault()
+  }
+
+  function handleMaskedTimePaste(kind: 'start' | 'end', e: ClipboardEvent<HTMLInputElement>) {
+    e.preventDefault()
+    const raw = e.clipboardData.getData('text') ?? ''
+    const digits = raw.replace(/\D/g, '').slice(0, 4)
+    if (!digits) return
+
+    // Fill sequentially from empty
+    let slots = TIME_SLOTS_EMPTY
+    for (const d of digits) {
+      const idx = nextEmptyIndex(slots)
+      if (idx === -1) break
+      if (!canSetSlotDigit(slots, idx, d)) break
+      const next = slots.split('')
+      next[idx] = d
+      slots = next.join('')
+    }
+    applySlots(kind, slots)
+  }
 
   const categories: ActivityCategory[] = [
     'Produtivo',
@@ -748,9 +948,7 @@ function FieldPage(props: {
   }, [props.user.uid, props.user.role])
 
 
-  function setDraftPatch(patch: Partial<typeof draft>) {
-    setDraft((prev) => ({ ...prev, ...patch }))
-  }
+  // setDraftPatch is defined above (used by masked time inputs)
 
   async function save() {
     if (validation.errors.length > 0) return
@@ -846,6 +1044,8 @@ function FieldPage(props: {
       containerId: '',
       notes: '',
     }))
+    setStartSlots(TIME_SLOTS_EMPTY)
+    setEndSlots(TIME_SLOTS_EMPTY)
   }
 
   function exportCsv() {
@@ -961,22 +1161,32 @@ function FieldPage(props: {
               <label style={{ display: 'grid', gap: 6 }}>
                 Início (HH:MM)
                 <input
-                  value={draft.startHHMM}
-                  onChange={(e) => setDraftPatch({ startHHMM: e.target.value })}
-                  placeholder="Ex: 15:20"
+                  ref={startInputRef}
+                  value={slotsToMaskedHHMM(startSlots)}
+                  onKeyDown={(e) => handleMaskedTimeKeyDown('start', e)}
+                  onPaste={(e) => handleMaskedTimePaste('start', e)}
+                  onFocus={() => handleMaskedTimeFocus('start')}
+                  onClick={() => handleMaskedTimeFocus('start')}
                   inputMode="numeric"
-                  style={{ padding: 10 }}
+                  autoComplete="off"
+                  aria-label="Início (HH:MM)"
+                  style={{ padding: 10, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
                 />
               </label>
 
               <label style={{ display: 'grid', gap: 6 }}>
                 Fim (HH:MM)
                 <input
-                  value={draft.endHHMM}
-                  onChange={(e) => setDraftPatch({ endHHMM: e.target.value })}
-                  placeholder="Ex: 16:05"
+                  ref={endInputRef}
+                  value={slotsToMaskedHHMM(endSlots)}
+                  onKeyDown={(e) => handleMaskedTimeKeyDown('end', e)}
+                  onPaste={(e) => handleMaskedTimePaste('end', e)}
+                  onFocus={() => handleMaskedTimeFocus('end')}
+                  onClick={() => handleMaskedTimeFocus('end')}
                   inputMode="numeric"
-                  style={{ padding: 10 }}
+                  autoComplete="off"
+                  aria-label="Fim (HH:MM)"
+                  style={{ padding: 10, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
                 />
               </label>
             </div>
