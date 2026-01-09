@@ -29,6 +29,97 @@ service cloud.firestore {
       return isSignedIn() && (myRole() == "SUPERVISOR" || myRole() == "ADMIN");
     }
 
+    // ===== Events schema validation (create only) =====
+
+    function isValidPump(p) {
+      return (p is int) && (p == 1 || p == 2);
+    }
+
+    function isValidShift(s) {
+      return (s is string) && (s in ["MANHA", "NOITE"]);
+    }
+
+    function isValidCategory(c) {
+      return (c is string) && (c in ["Produtivo", "Aguardando laboratório", "Sem caminhão", "Sem container", "Manutenção", "Outros"]);
+    }
+
+    function isValidShiftDate(d) {
+      return (d is string) && d.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isNonEmptyString(s) {
+      return (s is string) && s.size() > 0;
+    }
+
+    function isValidTimestamp(t) {
+      return t is timestamp;
+    }
+
+    function isTimeOrderValid(startAt, endAt) {
+      return isValidTimestamp(startAt) && isValidTimestamp(endAt) && (startAt < endAt);
+    }
+
+    function categoryRequiresNotes(category) {
+      return category in ["Outros", "Sem caminhão", "Manutenção", "Aguardando laboratório", "Sem container"];
+    }
+
+    function categoryRequiresProdutivoFields(category) {
+      return category == "Produtivo";
+    }
+
+    function clientExistsAndIsActive(clientId) {
+      return isNonEmptyString(clientId)
+        && exists(/databases/$(database)/documents/clients/$(clientId))
+        && get(/databases/$(database)/documents/clients/$(clientId)).data.active == true;
+    }
+
+    function hasOnlyAllowedEventKeys(data) {
+      // Keep this list aligned with the frontend payload in [`save()`](transbordo-app/src/App.tsx:954)
+      return data.keys().hasOnly([
+        "createdBy",
+        "createdByEmail",
+        "createdAt",
+        "updatedAt",
+        "pump",
+        "shiftDate",
+        "shift",
+        "category",
+        "startAt",
+        "endAt",
+        "clientId",
+        "clientName",
+        "truckPlate",
+        "containerId",
+        "notes"
+      ]);
+    }
+
+    function isValidEventCreate(data) {
+      return (data.createdBy == request.auth.uid)
+        && isValidPump(data.pump)
+        && isValidShiftDate(data.shiftDate)
+        && isValidShift(data.shift)
+        && isValidCategory(data.category)
+        && isTimeOrderValid(data.startAt, data.endAt)
+
+        // Client required for all categories
+        && clientExistsAndIsActive(data.clientId)
+
+        // Optional fields types
+        && (!("createdByEmail" in data) || (data.createdByEmail is string))
+        && (!("clientName" in data) || (data.clientName is string))
+
+        // Notes required depending on category
+        && (!categoryRequiresNotes(data.category) || (("notes" in data) && isNonEmptyString(data.notes)))
+
+        // Produtivo requires truckPlate + containerId
+        && (!categoryRequiresProdutivoFields(data.category)
+          || (("truckPlate" in data) && isNonEmptyString(data.truckPlate) && ("containerId" in data) && isNonEmptyString(data.containerId)))
+
+        // Optional keys whitelist (prevents unexpected data injection)
+        && hasOnlyAllowedEventKeys(data);
+    }
+
     // USERS
     // - Self-signup creates users/{uid} with role OPERADOR
     // - User can update their own profile BUT cannot change role
@@ -85,7 +176,7 @@ service cloud.firestore {
     // - Delete disabled (use soft-delete later)
     match /events/{eventId} {
       allow create: if isApproved()
-                    && request.resource.data.createdBy == request.auth.uid;
+                    && isValidEventCreate(request.resource.data);
 
       allow read: if isApproved()
                   && (
@@ -93,11 +184,9 @@ service cloud.firestore {
                     || resource.data.createdBy == request.auth.uid
                   );
 
-      allow update: if isApproved()
-                    && (
-                      isSupervisorOrAdmin()
-                      || resource.data.createdBy == request.auth.uid
-                    );
+      // Updates are blocked for now because the app has no "edit event" UI yet.
+      // This avoids privilege escalation / tampering with immutable fields.
+      allow update: if false;
 
       allow delete: if false;
     }

@@ -404,53 +404,62 @@ function LoginPage(props: { themeMode: ThemeMode; onThemeModeChange: (mode: Them
         Acesso restrito: entre com Email/Senha (Firebase Auth). Se não tiver conta, crie uma.
       </p>
 
-      <label style={{ display: 'block', marginTop: 12 }}>
-        Email
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
-          inputMode="email"
-          style={{ width: '100%', padding: 10, marginTop: 6 }}
-        />
-      </label>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (busy || !email.trim() || password.length < 6) return
+          void handleLogin()
+        }}
+      >
+        <label style={{ display: 'block', marginTop: 12 }}>
+          Email
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            inputMode="email"
+            style={{ width: '100%', padding: 10, marginTop: 6 }}
+          />
+        </label>
 
-      <label style={{ display: 'block', marginTop: 12 }}>
-        Senha
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          style={{ width: '100%', padding: 10, marginTop: 6 }}
-        />
-      </label>
+        <label style={{ display: 'block', marginTop: 12 }}>
+          Senha
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{ width: '100%', padding: 10, marginTop: 6 }}
+          />
+        </label>
 
-      {error ? (
-        <div style={{ marginTop: 12, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
-          {error}
+        {error ? (
+          <div style={{ marginTop: 12, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+            {error}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+          <button
+            type="submit"
+            style={{ padding: 12, width: '100%' }}
+            disabled={busy || !email.trim() || password.length < 6}
+            title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Entrar'}
+          >
+            {busy ? 'Aguarde…' : 'Entrar'}
+          </button>
+
+          <button
+            type="button"
+            style={{ padding: 12, width: '100%' }}
+            onClick={handleSignup}
+            disabled={busy || !email.trim() || password.length < 6}
+            title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Criar conta'}
+          >
+            {busy ? 'Aguarde…' : 'Criar conta'}
+          </button>
         </div>
-      ) : null}
-
-      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-        <button
-          style={{ padding: 12, width: '100%' }}
-          onClick={handleLogin}
-          disabled={busy || !email.trim() || password.length < 6}
-          title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Entrar'}
-        >
-          {busy ? 'Aguarde…' : 'Entrar'}
-        </button>
-
-        <button
-          style={{ padding: 12, width: '100%' }}
-          onClick={handleSignup}
-          disabled={busy || !email.trim() || password.length < 6}
-          title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Criar conta'}
-        >
-          {busy ? 'Aguarde…' : 'Criar conta'}
-        </button>
-      </div>
+      </form>
 
       <p style={{ opacity: 0.7, fontSize: 12, marginTop: 12 }}>
         Observação: por padrão, novos usuários entram como <b>OPERADOR</b> e depois podem ser promovidos por um Admin.
@@ -803,15 +812,16 @@ function FieldPage(props: {
 
     const needsNotes = categoriesRequiringNotes.has(draft.category)
 
-    if (draft.category === 'Produtivo') {
-      if (!draft.clientId) {
-        errors.push('Produtivo: Cliente obrigatório.')
-      } else {
-        const c = clients.find((x) => x.id === draft.clientId)
-        if (!c) errors.push('Produtivo: Cliente selecionado não existe (atualize a lista).')
-        else if (!c.active) errors.push('Produtivo: Cliente selecionado está inativo.')
-      }
+    // Cliente é obrigatório para TODAS as categorias
+    if (!draft.clientId) {
+      errors.push('Cliente obrigatório.')
+    } else {
+      const c = clients.find((x) => x.id === draft.clientId)
+      if (!c) errors.push('Cliente selecionado não existe (atualize a lista).')
+      else if (!c.active) errors.push('Cliente selecionado está inativo.')
+    }
 
+    if (draft.category === 'Produtivo') {
       if (!draft.truckPlate.trim() || !isMercosulOrOldPlate(draft.truckPlate)) {
         errors.push('Produtivo: Placa obrigatória e deve estar em formato válido.')
       }
@@ -956,11 +966,13 @@ function FieldPage(props: {
 
     const id = nowId()
 
-    const clientId = draft.category === 'Produtivo' && draft.clientId ? draft.clientId : undefined
+    const clientId = draft.clientId ? draft.clientId : undefined
     const clientName = clientId ? clients.find((c) => c.id === clientId)?.name : undefined
 
-    const truckPlate = draft.truckPlate.trim() ? draft.truckPlate.trim().toUpperCase() : undefined
-    const containerId = draft.containerId.trim() ? draft.containerId.trim().toUpperCase() : undefined
+    const truckPlate =
+      draft.category === 'Produtivo' && draft.truckPlate.trim() ? draft.truckPlate.trim().toUpperCase() : undefined
+    const containerId =
+      draft.category === 'Produtivo' && draft.containerId.trim() ? draft.containerId.trim().toUpperCase() : undefined
     const notes = draft.notes.trim() ? draft.notes.trim() : undefined
 
     // Firestore NÃO aceita `undefined`. Campos opcionais devem ser omitidos quando vazios.
@@ -1128,10 +1140,16 @@ function FieldPage(props: {
           </button>
         </div>
 
-        <div className="tp-card">
+        <form
+          className="tp-card"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+        >
           <div className="tp-card-header">
             <div style={{ fontWeight: 700 }}>Novo lançamento</div>
-            <button disabled={validation.errors.length > 0} onClick={() => void save()} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
+            <button type="submit" disabled={validation.errors.length > 0} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
               Salvar
             </button>
           </div>
@@ -1195,6 +1213,7 @@ function FieldPage(props: {
               {categories.map((c) => (
                 <button
                   key={c}
+                  type="button"
                   onClick={() => setDraftPatch({ category: c })}
                   className={`tp-category-btn ${draft.category === c ? 'tp-category-btn--active' : ''}`}
                 >
@@ -1210,71 +1229,73 @@ function FieldPage(props: {
               ))}
             </div>
 
-            {draft.category === 'Produtivo' && (
-              <div style={{ display: 'grid', gap: 10 }}>
-                <label style={{ display: 'grid', gap: 6 }}>
-                  Cliente (obrigatório em Produtivo)
-                  <select value={draft.clientId} onChange={(e) => setDraftPatch({ clientId: e.target.value })} style={{ padding: 10 }}>
-                    <option value="">Selecione…</option>
-                    {activeClients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  {clientsError ? (
-                    <span style={{ fontSize: 12 }} className="tp-danger-text">
-                      {clientsError}
-                    </span>
-                  ) : null}
-                  {!clientsError && !loadingClients && activeClients.length === 0 ? (
-                    <span style={{ fontSize: 12 }} className="tp-danger-text">
-                      Nenhum cliente ativo cadastrado. Um Admin precisa cadastrar em “Clientes”.
-                    </span>
-                  ) : null}
-                </label>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={{ display: 'grid', gap: 6 }}>
+                Cliente (obrigatório)
+                <select value={draft.clientId} onChange={(e) => setDraftPatch({ clientId: e.target.value })} style={{ padding: 10 }}>
+                  <option value="">Selecione…</option>
+                  {activeClients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                {clientsError ? (
+                  <span style={{ fontSize: 12 }} className="tp-danger-text">
+                    {clientsError}
+                  </span>
+                ) : null}
+                {!clientsError && !loadingClients && activeClients.length === 0 ? (
+                  <span style={{ fontSize: 12 }} className="tp-danger-text">
+                    Nenhum cliente ativo cadastrado. Um Admin precisa cadastrar em “Clientes”.
+                  </span>
+                ) : null}
+              </label>
 
-                <label style={{ display: 'grid', gap: 6 }}>
-                  Placa (obrigatório em Produtivo)
-                  <input
-                    value={draft.truckPlate}
-                    onChange={(e) => setDraftPatch({ truckPlate: e.target.value })}
-                    placeholder="ABC1234 ou ABC1D23"
-                    style={{ padding: 10 }}
-                  />
-                  {draft.truckPlate && !isMercosulOrOldPlate(draft.truckPlate) && (
-                    <span style={{ fontSize: 12 }} className="tp-danger-text">
-                      Formato inválido de placa.
-                    </span>
-                  )}
-                </label>
+              {draft.category === 'Produtivo' ? (
+                <>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    Placa (obrigatório em Produtivo)
+                    <input
+                      value={draft.truckPlate}
+                      onChange={(e) => setDraftPatch({ truckPlate: e.target.value })}
+                      placeholder="ABC1234 ou ABC1D23"
+                      style={{ padding: 10 }}
+                    />
+                    {draft.truckPlate && !isMercosulOrOldPlate(draft.truckPlate) && (
+                      <span style={{ fontSize: 12 }} className="tp-danger-text">
+                        Formato inválido de placa.
+                      </span>
+                    )}
+                  </label>
 
-                <label style={{ display: 'grid', gap: 6 }}>
-                  Container (obrigatório em Produtivo)
-                  <input
-                    value={draft.containerId}
-                    onChange={(e) => setDraftPatch({ containerId: e.target.value })}
-                    placeholder="ABCD 123456-7"
-                    style={{ padding: 10 }}
-                  />
-                  {draft.containerId && !isContainerId(draft.containerId) && (
-                    <span style={{ fontSize: 12 }} className="tp-danger-text">
-                      Formato inválido de container.
-                    </span>
-                  )}
-                </label>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    Container (obrigatório em Produtivo)
+                    <input
+                      value={draft.containerId}
+                      onChange={(e) => setDraftPatch({ containerId: e.target.value })}
+                      placeholder="ABCD 123456-7"
+                      style={{ padding: 10 }}
+                    />
+                    {draft.containerId && !isContainerId(draft.containerId) && (
+                      <span style={{ fontSize: 12 }} className="tp-danger-text">
+                        Formato inválido de container.
+                      </span>
+                    )}
+                  </label>
 
-                <label style={{ display: 'grid', gap: 6 }}>
-                  Observações (opcional em Produtivo)
-                  <input
-                    value={draft.notes}
-                    onChange={(e) => setDraftPatch({ notes: e.target.value })}
-                    placeholder="Ex: Troca de container, ajuste, observação do operador..."
-                    style={{ padding: 10 }}
-                  />
-                </label>
-              </div>
-            )}
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    Observações (opcional em Produtivo)
+                    <input
+                      value={draft.notes}
+                      onChange={(e) => setDraftPatch({ notes: e.target.value })}
+                      placeholder="Ex: Troca de container, ajuste, observação do operador..."
+                      style={{ padding: 10 }}
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
 
             {draft.category !== 'Produtivo' && categoriesRequiringNotes.has(draft.category) && (
               <label style={{ display: 'grid', gap: 6 }}>
@@ -1307,7 +1328,7 @@ function FieldPage(props: {
               </div>
             ) : null}
           </div>
-        </div>
+        </form>
 
         {props.user.role === 'ADMIN' ? (
           <div className="tp-card">
@@ -1489,7 +1510,9 @@ function FieldPage(props: {
                         ) : null}
                       </>
                     ) : (
-                      <span><b>Obs:</b> {e.notes ?? '-'}</span>
+                      <>
+                        <span><b>Cliente:</b> {e.clientName ?? '-'}</span> • <span><b>Obs:</b> {e.notes ?? '-'}</span>
+                      </>
                     )}
                   </div>
 
