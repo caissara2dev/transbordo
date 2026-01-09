@@ -404,53 +404,62 @@ function LoginPage(props: { themeMode: ThemeMode; onThemeModeChange: (mode: Them
         Acesso restrito: entre com Email/Senha (Firebase Auth). Se não tiver conta, crie uma.
       </p>
 
-      <label style={{ display: 'block', marginTop: 12 }}>
-        Email
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
-          inputMode="email"
-          style={{ width: '100%', padding: 10, marginTop: 6 }}
-        />
-      </label>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (busy || !email.trim() || password.length < 6) return
+          void handleLogin()
+        }}
+      >
+        <label style={{ display: 'block', marginTop: 12 }}>
+          Email
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            inputMode="email"
+            style={{ width: '100%', padding: 10, marginTop: 6 }}
+          />
+        </label>
 
-      <label style={{ display: 'block', marginTop: 12 }}>
-        Senha
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          style={{ width: '100%', padding: 10, marginTop: 6 }}
-        />
-      </label>
+        <label style={{ display: 'block', marginTop: 12 }}>
+          Senha
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{ width: '100%', padding: 10, marginTop: 6 }}
+          />
+        </label>
 
-      {error ? (
-        <div style={{ marginTop: 12, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
-          {error}
+        {error ? (
+          <div style={{ marginTop: 12, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+            {error}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+          <button
+            type="submit"
+            style={{ padding: 12, width: '100%' }}
+            disabled={busy || !email.trim() || password.length < 6}
+            title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Entrar'}
+          >
+            {busy ? 'Aguarde…' : 'Entrar'}
+          </button>
+
+          <button
+            type="button"
+            style={{ padding: 12, width: '100%' }}
+            onClick={handleSignup}
+            disabled={busy || !email.trim() || password.length < 6}
+            title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Criar conta'}
+          >
+            {busy ? 'Aguarde…' : 'Criar conta'}
+          </button>
         </div>
-      ) : null}
-
-      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-        <button
-          style={{ padding: 12, width: '100%' }}
-          onClick={handleLogin}
-          disabled={busy || !email.trim() || password.length < 6}
-          title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Entrar'}
-        >
-          {busy ? 'Aguarde…' : 'Entrar'}
-        </button>
-
-        <button
-          style={{ padding: 12, width: '100%' }}
-          onClick={handleSignup}
-          disabled={busy || !email.trim() || password.length < 6}
-          title={password.length < 6 ? 'Senha precisa ter pelo menos 6 caracteres' : 'Criar conta'}
-        >
-          {busy ? 'Aguarde…' : 'Criar conta'}
-        </button>
-      </div>
+      </form>
 
       <p style={{ opacity: 0.7, fontSize: 12, marginTop: 12 }}>
         Observação: por padrão, novos usuários entram como <b>OPERADOR</b> e depois podem ser promovidos por um Admin.
@@ -1131,10 +1140,16 @@ function FieldPage(props: {
           </button>
         </div>
 
-        <div className="tp-card">
+        <form
+          className="tp-card"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+        >
           <div className="tp-card-header">
             <div style={{ fontWeight: 700 }}>Novo lançamento</div>
-            <button disabled={validation.errors.length > 0} onClick={() => void save()} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
+            <button type="submit" disabled={validation.errors.length > 0} title={validation.errors.length > 0 ? validation.errors.join(' ') : 'Salvar'}>
               Salvar
             </button>
           </div>
@@ -1198,6 +1213,7 @@ function FieldPage(props: {
               {categories.map((c) => (
                 <button
                   key={c}
+                  type="button"
                   onClick={() => setDraftPatch({ category: c })}
                   className={`tp-category-btn ${draft.category === c ? 'tp-category-btn--active' : ''}`}
                 >
@@ -1312,7 +1328,7 @@ function FieldPage(props: {
               </div>
             ) : null}
           </div>
-        </div>
+        </form>
 
         {props.user.role === 'ADMIN' ? (
           <div className="tp-card">
