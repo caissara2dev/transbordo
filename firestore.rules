@@ -40,7 +40,7 @@ service cloud.firestore {
     }
 
     function isValidCategory(c) {
-      return (c is string) && (c in ["Produtivo", "Aguardando laboratório", "Sem caminhão", "Sem container", "Manutenção", "Outros"]);
+      return (c is string) && (c in ["Produtivo", "Em trânsito", "Aguardando laboratório", "Sem caminhão", "Sem container", "Manutenção", "Outros"]);
     }
 
     function isValidShiftDate(d) {
@@ -65,6 +65,10 @@ service cloud.firestore {
 
     function categoryRequiresProdutivoFields(category) {
       return category == "Produtivo";
+    }
+
+    function categoryRequiresTruckPlate(category) {
+      return category in ["Produtivo", "Em trânsito"];
     }
 
     function clientExistsAndIsActive(clientId) {
@@ -115,6 +119,10 @@ service cloud.firestore {
         // Produtivo requires truckPlate + containerId
         && (!categoryRequiresProdutivoFields(data.category)
           || (("truckPlate" in data) && isNonEmptyString(data.truckPlate) && ("containerId" in data) && isNonEmptyString(data.containerId)))
+
+        // Em trânsito requires truckPlate (but NOT containerId)
+        && (!categoryRequiresTruckPlate(data.category)
+          || (("truckPlate" in data) && isNonEmptyString(data.truckPlate)))
 
         // Optional keys whitelist (prevents unexpected data injection)
         && hasOnlyAllowedEventKeys(data);
