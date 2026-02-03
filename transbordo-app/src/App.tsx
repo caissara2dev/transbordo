@@ -95,6 +95,7 @@ type Pump = 1 | 2
 
 type ActivityCategory =
   | 'Produtivo'
+  | 'Em trânsito'
   | 'Aguardando laboratório'
   | 'Sem caminhão'
   | 'Sem container'
@@ -646,6 +647,30 @@ function FieldPage(props: {
     notes: '',
   })
 
+  // If the user manually changes the Shift select, we stop auto-switching.
+  const [shiftTouched, setShiftTouched] = useState(false)
+
+  // Auto-switch to NOITE after 15:00 (local time) IF the user hasn't touched the Shift select.
+  useEffect(() => {
+    if (shiftTouched) return
+
+    const tick = () => {
+      const now = new Date()
+      const nowMinutes = now.getHours() * 60 + now.getMinutes()
+      const today = localISODate(now)
+
+      // Only auto-switch when the shiftDate is "today" (start-day of the shift).
+      if (draft.shiftDate !== today) return
+      if (nowMinutes < 15 * 60) return
+
+      setDraft((prev) => (prev.shift === 'NOITE' ? prev : { ...prev, shift: 'NOITE' }))
+    }
+
+    tick()
+    const id = window.setInterval(tick, 30_000)
+    return () => window.clearInterval(id)
+  }, [draft.shiftDate, shiftTouched])
+
   // Rigid time mask inputs (HH:MM), internally stores 4 slots: HHMM with '_' placeholders.
   const [startSlots, setStartSlots] = useState<string>(TIME_SLOTS_EMPTY)
   const [endSlots, setEndSlots] = useState<string>(TIME_SLOTS_EMPTY)
@@ -771,6 +796,7 @@ function FieldPage(props: {
 
   const categories: ActivityCategory[] = [
     'Produtivo',
+    'Em trânsito',
     'Aguardando laboratório',
     'Sem caminhão',
     'Sem container',
@@ -812,6 +838,9 @@ function FieldPage(props: {
 
     const needsNotes = categoriesRequiringNotes.has(draft.category)
 
+    const needsTruckPlate = draft.category === 'Produtivo' || draft.category === 'Em trânsito'
+    const needsContainer = draft.category === 'Produtivo'
+
     // Cliente é obrigatório para TODAS as categorias
     if (!draft.clientId) {
       errors.push('Cliente obrigatório.')
@@ -821,10 +850,13 @@ function FieldPage(props: {
       else if (!c.active) errors.push('Cliente selecionado está inativo.')
     }
 
-    if (draft.category === 'Produtivo') {
+    if (needsTruckPlate) {
       if (!draft.truckPlate.trim() || !isMercosulOrOldPlate(draft.truckPlate)) {
-        errors.push('Produtivo: Placa obrigatória e deve estar em formato válido.')
+        errors.push(`${draft.category}: Placa obrigatória e deve estar em formato válido.`)
       }
+    }
+
+    if (needsContainer) {
       if (!draft.containerId.trim() || !isContainerId(draft.containerId)) {
         errors.push('Produtivo: Container obrigatório e deve estar em formato válido.')
       }
@@ -970,7 +1002,9 @@ function FieldPage(props: {
     const clientName = clientId ? clients.find((c) => c.id === clientId)?.name : undefined
 
     const truckPlate =
-      draft.category === 'Produtivo' && draft.truckPlate.trim() ? draft.truckPlate.trim().toUpperCase() : undefined
+      (draft.category === 'Produtivo' || draft.category === 'Em trânsito') && draft.truckPlate.trim()
+        ? draft.truckPlate.trim().toUpperCase()
+        : undefined
     const containerId =
       draft.category === 'Produtivo' && draft.containerId.trim() ? draft.containerId.trim().toUpperCase() : undefined
     const notes = draft.notes.trim() ? draft.notes.trim() : undefined
@@ -1161,14 +1195,24 @@ function FieldPage(props: {
                 <input
                   type="date"
                   value={draft.shiftDate}
-                  onChange={(e) => setDraftPatch({ shiftDate: e.target.value })}
+                  onChange={(e) => {
+                    setShiftTouched(false)
+                    setDraftPatch({ shiftDate: e.target.value })
+                  }}
                   style={{ padding: 10 }}
                 />
               </label>
 
               <label style={{ display: 'grid', gap: 6 }}>
                 Turno
-                <select value={draft.shift} onChange={(e) => setDraftPatch({ shift: e.target.value as Shift })} style={{ padding: 10 }}>
+                <select
+                  value={draft.shift}
+                  onChange={(e) => {
+                    setShiftTouched(true)
+                    setDraftPatch({ shift: e.target.value as Shift })
+                  }}
+                  style={{ padding: 10 }}
+                >
                   <option value="MANHA">Manhã (06:00–15:00)</option>
                   <option value="NOITE">Tarde/Noite (15:00–00:48)</option>
                 </select>
@@ -1221,6 +1265,8 @@ function FieldPage(props: {
                   <div style={{ fontSize: 12, opacity: 0.75 }}>
                     {c === 'Produtivo'
                       ? 'Exige Cliente + Placa + Container (validação rígida)'
+                      : c === 'Em trânsito'
+                        ? 'Exige Cliente + Placa (sem container)'
                       : categoriesRequiringNotes.has(c)
                         ? 'Observações obrigatória'
                         : '—'}
@@ -1252,10 +1298,10 @@ function FieldPage(props: {
                 ) : null}
               </label>
 
-              {draft.category === 'Produtivo' ? (
+              {draft.category === 'Produtivo' || draft.category === 'Em trânsito' ? (
                 <>
                   <label style={{ display: 'grid', gap: 6 }}>
-                    Placa (obrigatório em Produtivo)
+                    Placa (obrigatório em {draft.category})
                     <input
                       value={draft.truckPlate}
                       onChange={(e) => setDraftPatch({ truckPlate: e.target.value })}
@@ -1269,30 +1315,34 @@ function FieldPage(props: {
                     )}
                   </label>
 
-                  <label style={{ display: 'grid', gap: 6 }}>
-                    Container (obrigatório em Produtivo)
-                    <input
-                      value={draft.containerId}
-                      onChange={(e) => setDraftPatch({ containerId: e.target.value })}
-                      placeholder="ABCD 123456-7"
-                      style={{ padding: 10 }}
-                    />
-                    {draft.containerId && !isContainerId(draft.containerId) && (
-                      <span style={{ fontSize: 12 }} className="tp-danger-text">
-                        Formato inválido de container.
-                      </span>
-                    )}
-                  </label>
+                  {draft.category === 'Produtivo' ? (
+                    <>
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        Container (obrigatório em Produtivo)
+                        <input
+                          value={draft.containerId}
+                          onChange={(e) => setDraftPatch({ containerId: e.target.value })}
+                          placeholder="ABCD 123456-7"
+                          style={{ padding: 10 }}
+                        />
+                        {draft.containerId && !isContainerId(draft.containerId) && (
+                          <span style={{ fontSize: 12 }} className="tp-danger-text">
+                            Formato inválido de container.
+                          </span>
+                        )}
+                      </label>
 
-                  <label style={{ display: 'grid', gap: 6 }}>
-                    Observações (opcional em Produtivo)
-                    <input
-                      value={draft.notes}
-                      onChange={(e) => setDraftPatch({ notes: e.target.value })}
-                      placeholder="Ex: Troca de container, ajuste, observação do operador..."
-                      style={{ padding: 10 }}
-                    />
-                  </label>
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        Observações (opcional em Produtivo)
+                        <input
+                          value={draft.notes}
+                          onChange={(e) => setDraftPatch({ notes: e.target.value })}
+                          placeholder="Ex: Troca de container, ajuste, observação do operador..."
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                    </>
+                  ) : null}
                 </>
               ) : null}
             </div>
@@ -1502,6 +1552,16 @@ function FieldPage(props: {
                         <span><b>Cliente:</b> {e.clientName ?? '-'}</span>
                         {' '}
                         • <span><b>Placa:</b> {e.truckPlate ?? '-'}</span> • <span><b>Container:</b> {e.containerId ?? '-'}</span>
+                        {e.notes ? (
+                          <>
+                            {' '}
+                            • <span><b>Obs:</b> {e.notes}</span>
+                          </>
+                        ) : null}
+                      </>
+                    ) : e.category === 'Em trânsito' ? (
+                      <>
+                        <span><b>Cliente:</b> {e.clientName ?? '-'}</span> • <span><b>Placa:</b> {e.truckPlate ?? '-'}</span>
                         {e.notes ? (
                           <>
                             {' '}
