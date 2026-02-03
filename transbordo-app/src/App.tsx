@@ -10,6 +10,7 @@ import {
 import {
   Timestamp,
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -18,6 +19,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  writeBatch,
   where,
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
@@ -26,6 +28,15 @@ import './App.css'
 type ThemeMode = 'system' | 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'tp.theme'
+const UPDATE_NOTICE_DISMISSED_KEY = 'tp.update_notice.dismissed'
+
+function readUpdateNoticeDismissed(): boolean {
+  return localStorage.getItem(UPDATE_NOTICE_DISMISSED_KEY) === '1'
+}
+
+function persistUpdateNoticeDismissed() {
+  localStorage.setItem(UPDATE_NOTICE_DISMISSED_KEY, '1')
+}
 
 function readThemeMode(): ThemeMode {
   const raw = localStorage.getItem(THEME_STORAGE_KEY)
@@ -60,6 +71,59 @@ function ThemeSelect(props: { mode: ThemeMode; onChange: (mode: ThemeMode) => vo
         <option value="dark">Escuro</option>
       </select>
     </label>
+  )
+}
+
+function UpdateNoticeModal(props: { onDismiss: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Aviso de atualização"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        className="tp-card"
+        style={{
+          width: 'min(720px, 100%)',
+          border: '1px solid var(--tp-border)',
+          boxShadow: '0 14px 50px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div className="tp-card-header">
+          <div style={{ fontWeight: 800 }}>Novidades no Transbordo</div>
+          <button type="button" onClick={props.onDismiss} title="Fechar">
+            Fechar
+          </button>
+        </div>
+
+        <div style={{ padding: 14, display: 'grid', gap: 10 }}>
+          <p style={{ margin: 0, opacity: 0.9 }}>
+            Estamos evoluindo o sistema para deixar a operação ainda mais ágil, consistente e auditável.
+          </p>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+            <li>Supervisores e Admins agora podem editar lançamentos.</li>
+            <li>Correção de placa, container e horários ficou mais simples.</li>
+            <li>Cada edição fica registrada com histórico completo para auditoria.</li>
+            <li>Horário em formato 24h (HH:MM) também na edição.</li>
+          </ul>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+            <button type="button" onClick={props.onDismiss} style={{ padding: 12 }}>
+              Entendi
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -132,6 +196,24 @@ type StoredEvent = OperationEvent & {
   createdByEmail?: string
   createdAt?: Date
   updatedAt?: Date
+  updatedBy?: string
+  updatedByEmail?: string
+}
+
+type EventDraft = {
+  shiftDate: string
+  shift: Shift
+  category: ActivityCategory
+  startHHMM: string
+  endHHMM: string
+  clientId: string
+  truckPlate: string
+  containerId: string
+  notes: string
+}
+
+type EditDraft = EventDraft & {
+  pump: Pump
 }
 
 function isMercosulOrOldPlate(value: string): boolean {
@@ -489,6 +571,12 @@ function slotsToHHMM(slots: string): string | '' {
   return `${slots.slice(0, 2)}:${slots.slice(2, 4)}`
 }
 
+function hhmmToSlots(hhmm: string): string {
+  const clean = hhmm.replace(':', '')
+  if (!/^\d{4}$/.test(clean)) return TIME_SLOTS_EMPTY
+  return clean
+}
+
 function canSetSlotDigit(slots: string, idx: number, digit: string): boolean {
   // idx: 0..3, digit: '0'..'9'
   if (!/^\d$/.test(digit)) return false
@@ -581,6 +669,105 @@ function toShiftDateTime(shiftDateISO: string, shift: Shift, totalMinutes: numbe
   return d
 }
 
+function toHHMM(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+function validateEventDraft(
+  draft: EventDraft,
+  clients: Client[],
+  categoriesRequiringNotes: Set<ActivityCategory>,
+  opts?: { allowInactiveClientId?: string },
+): { errors: string[]; startAt: Date | null; endAt: Date | null } {
+  const errors: string[] = []
+
+  if (!draft.shiftDate) errors.push('Selecione a data do turno.')
+  if (!draft.startHHMM) errors.push('Preencha horário de início (HH:MM).')
+  if (!draft.endHHMM) errors.push('Preencha horário de fim (HH:MM).')
+
+  const startParsed = draft.startHHMM ? parseHHMM(draft.startHHMM) : null
+  const endParsed = draft.endHHMM ? parseHHMM(draft.endHHMM) : null
+
+  if (draft.startHHMM && !startParsed) errors.push('Formato inválido em Início (use HH:MM, 24h).')
+  if (draft.endHHMM && !endParsed) errors.push('Formato inválido em Fim (use HH:MM, 24h).')
+
+  if (startParsed && !isTimeAllowedInShift(draft.shift, startParsed.totalMinutes)) {
+    errors.push('Horário de início fora do turno selecionado.')
+  }
+  if (endParsed && !isTimeAllowedInShift(draft.shift, endParsed.totalMinutes)) {
+    errors.push('Horário de fim fora do turno selecionado.')
+  }
+
+  let startAt: Date | null = null
+  let endAt: Date | null = null
+
+  if (startParsed && endParsed && draft.shiftDate) {
+    startAt = toShiftDateTime(draft.shiftDate, draft.shift, startParsed.totalMinutes)
+    endAt = toShiftDateTime(draft.shiftDate, draft.shift, endParsed.totalMinutes)
+
+    if (endAt.getTime() <= startAt.getTime()) {
+      errors.push('Fim precisa ser depois do início.')
+    }
+  }
+
+  const needsNotes = categoriesRequiringNotes.has(draft.category)
+  const needsTruckPlate = draft.category === 'Produtivo' || draft.category === 'Em trânsito'
+  const needsContainer = draft.category === 'Produtivo'
+
+  if (!draft.clientId) {
+    errors.push('Cliente obrigatório.')
+  } else {
+    const c = clients.find((x) => x.id === draft.clientId)
+    if (!c) errors.push('Cliente selecionado não existe (atualize a lista).')
+    else if (!c.active && draft.clientId !== opts?.allowInactiveClientId) {
+      errors.push('Cliente selecionado está inativo.')
+    }
+  }
+
+  if (needsTruckPlate) {
+    if (!draft.truckPlate.trim() || !isMercosulOrOldPlate(draft.truckPlate)) {
+      errors.push(`${draft.category}: Placa obrigatória e deve estar em formato válido.`)
+    }
+  }
+
+  if (needsContainer) {
+    if (!draft.containerId.trim() || !isContainerId(draft.containerId)) {
+      errors.push('Produtivo: Container obrigatório e deve estar em formato válido.')
+    }
+  }
+
+  if (needsNotes) {
+    if (!draft.notes.trim()) errors.push(`${draft.category}: Observações obrigatória.`)
+  }
+
+  return { errors, startAt, endAt }
+}
+
+function eventToPlain(e: StoredEvent): Record<string, unknown> {
+  const data: Record<string, unknown> = {
+    createdBy: e.createdBy,
+    pump: e.pump,
+    shiftDate: e.shiftDate,
+    shift: e.shift,
+    category: e.category,
+    startAt: e.startAt,
+    endAt: e.endAt,
+    ...(e.createdByEmail ? { createdByEmail: e.createdByEmail } : {}),
+    ...(e.createdAt ? { createdAt: e.createdAt } : {}),
+    ...(e.updatedAt ? { updatedAt: e.updatedAt } : {}),
+    ...(e.updatedBy ? { updatedBy: e.updatedBy } : {}),
+    ...(e.updatedByEmail ? { updatedByEmail: e.updatedByEmail } : {}),
+    ...(e.clientId ? { clientId: e.clientId } : {}),
+    ...(e.clientName ? { clientName: e.clientName } : {}),
+    ...(e.truckPlate ? { truckPlate: e.truckPlate } : {}),
+    ...(e.containerId ? { containerId: e.containerId } : {}),
+    ...(e.notes ? { notes: e.notes } : {}),
+  }
+  return data
+}
+
 function FieldPage(props: {
   user: User
   onLogout: () => void
@@ -588,6 +775,7 @@ function FieldPage(props: {
   onThemeModeChange: (mode: ThemeMode) => void
 }) {
   const todayISO = localISODate()
+  const [showUpdateNotice, setShowUpdateNotice] = useState<boolean>(() => !readUpdateNoticeDismissed())
 
   const [selectedPump, setSelectedPump] = useState<Pump>(1)
 
@@ -625,17 +813,7 @@ function FieldPage(props: {
   const [filterShift, setFilterShift] = useState<'ALL' | Shift>('ALL')
   const [filterCategory, setFilterCategory] = useState<'ALL' | ActivityCategory>('ALL')
 
-  const [draft, setDraft] = useState<{
-    shiftDate: string
-    shift: Shift
-    category: ActivityCategory
-    startHHMM: string
-    endHHMM: string
-    clientId: string
-    truckPlate: string
-    containerId: string
-    notes: string
-  }>({
+  const [draft, setDraft] = useState<EventDraft>({
     shiftDate: todayISO,
     shift: 'MANHA',
     category: 'Produtivo',
@@ -646,6 +824,11 @@ function FieldPage(props: {
     containerId: '',
     notes: '',
   })
+
+  const [editingEventId, setEditingEventId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   // If the user manually changes the Shift select, we stop auto-switching.
   const [shiftTouched, setShiftTouched] = useState(false)
@@ -674,12 +857,47 @@ function FieldPage(props: {
   // Rigid time mask inputs (HH:MM), internally stores 4 slots: HHMM with '_' placeholders.
   const [startSlots, setStartSlots] = useState<string>(TIME_SLOTS_EMPTY)
   const [endSlots, setEndSlots] = useState<string>(TIME_SLOTS_EMPTY)
+  const [editStartSlots, setEditStartSlots] = useState<string>(TIME_SLOTS_EMPTY)
+  const [editEndSlots, setEditEndSlots] = useState<string>(TIME_SLOTS_EMPTY)
 
   const startInputRef = useRef<HTMLInputElement | null>(null)
   const endInputRef = useRef<HTMLInputElement | null>(null)
+  const editStartInputRef = useRef<HTMLInputElement | null>(null)
+  const editEndInputRef = useRef<HTMLInputElement | null>(null)
 
   function setDraftPatch(patch: Partial<typeof draft>) {
     setDraft((prev) => ({ ...prev, ...patch }))
+  }
+
+  function setEditDraftPatch(patch: Partial<EditDraft>) {
+    setEditDraft((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  function startEdit(event: StoredEvent) {
+    setEditError(null)
+    setEditingEventId(event.id)
+    setEditStartSlots(hhmmToSlots(toHHMM(event.startAt)))
+    setEditEndSlots(hhmmToSlots(toHHMM(event.endAt)))
+    setEditDraft({
+      pump: event.pump,
+      shiftDate: event.shiftDate,
+      shift: event.shift,
+      category: event.category,
+      startHHMM: toHHMM(event.startAt),
+      endHHMM: toHHMM(event.endAt),
+      clientId: event.clientId ?? '',
+      truckPlate: event.truckPlate ?? '',
+      containerId: event.containerId ?? '',
+      notes: event.notes ?? '',
+    })
+  }
+
+  function cancelEdit() {
+    setEditingEventId(null)
+    setEditDraft(null)
+    setEditError(null)
+    setEditStartSlots(TIME_SLOTS_EMPTY)
+    setEditEndSlots(TIME_SLOTS_EMPTY)
   }
 
   function syncDraftTimeFromSlots(kind: 'start' | 'end', slots: string) {
@@ -794,6 +1012,114 @@ function FieldPage(props: {
     applySlots(kind, slots)
   }
 
+  function syncEditDraftTimeFromSlots(kind: 'start' | 'end', slots: string) {
+    const hhmm = slotsToHHMM(slots)
+    if (kind === 'start') setEditDraftPatch({ startHHMM: hhmm })
+    else setEditDraftPatch({ endHHMM: hhmm })
+  }
+
+  function applyEditSlots(kind: 'start' | 'end', slots: string) {
+    if (kind === 'start') setEditStartSlots(slots)
+    else setEditEndSlots(slots)
+    syncEditDraftTimeFromSlots(kind, slots)
+    const ref = kind === 'start' ? editStartInputRef : editEndInputRef
+    requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      const pos = caretPosForNextInput(slots)
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  function handleEditMaskedTimeFocus(kind: 'start' | 'end') {
+    const ref = kind === 'start' ? editStartInputRef : editEndInputRef
+    const slots = kind === 'start' ? editStartSlots : editEndSlots
+    requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      const pos = caretPosForNextInput(slots)
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  function appendEditDigit(kind: 'start' | 'end', digit: string) {
+    const slots = kind === 'start' ? editStartSlots : editEndSlots
+
+    if (!slots.includes('_')) {
+      const fresh = TIME_SLOTS_EMPTY
+      if (!canSetSlotDigit(fresh, 0, digit)) return
+      const next = fresh.split('')
+      next[0] = digit
+      applyEditSlots(kind, next.join(''))
+      return
+    }
+
+    const idx = nextEmptyIndex(slots)
+    if (idx === -1) return
+    if (!canSetSlotDigit(slots, idx, digit)) return
+
+    const next = slots.split('')
+    next[idx] = digit
+    applyEditSlots(kind, next.join(''))
+  }
+
+  function backspaceEditDigit(kind: 'start' | 'end') {
+    const slots = kind === 'start' ? editStartSlots : editEndSlots
+    const idx = lastFilledIndex(slots)
+    if (idx === -1) return
+    const next = slots.split('')
+    next[idx] = '_'
+    applyEditSlots(kind, next.join(''))
+  }
+
+  function clearAllEdit(kind: 'start' | 'end') {
+    applyEditSlots(kind, TIME_SLOTS_EMPTY)
+  }
+
+  function handleEditMaskedTimeKeyDown(kind: 'start' | 'end', e: KeyboardEvent<HTMLInputElement>) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+
+    if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') return
+
+    if (e.key === 'Backspace') {
+      e.preventDefault()
+      backspaceEditDigit(kind)
+      return
+    }
+
+    if (e.key === 'Delete') {
+      e.preventDefault()
+      clearAllEdit(kind)
+      return
+    }
+
+    if (/^\d$/.test(e.key)) {
+      e.preventDefault()
+      appendEditDigit(kind, e.key)
+      return
+    }
+
+    e.preventDefault()
+  }
+
+  function handleEditMaskedTimePaste(kind: 'start' | 'end', e: ClipboardEvent<HTMLInputElement>) {
+    e.preventDefault()
+    const raw = e.clipboardData.getData('text') ?? ''
+    const digits = raw.replace(/\D/g, '').slice(0, 4)
+    if (!digits) return
+
+    let slots = TIME_SLOTS_EMPTY
+    for (const d of digits) {
+      const idx = nextEmptyIndex(slots)
+      if (idx === -1) break
+      if (!canSetSlotDigit(slots, idx, d)) break
+      const next = slots.split('')
+      next[idx] = d
+      slots = next.join('')
+    }
+    applyEditSlots(kind, slots)
+  }
+
   const categories: ActivityCategory[] = [
     'Produtivo',
     'Em trânsito',
@@ -804,71 +1130,30 @@ function FieldPage(props: {
     'Outros',
   ]
 
-  const validation = useMemo(() => {
-    const errors: string[] = []
+  const validation = useMemo(
+    () => validateEventDraft(draft, clients, categoriesRequiringNotes),
+    [draft, categoriesRequiringNotes, clients],
+  )
 
-    if (!draft.shiftDate) errors.push('Selecione a data do turno.')
-    if (!draft.startHHMM) errors.push('Preencha horário de início (HH:MM).')
-    if (!draft.endHHMM) errors.push('Preencha horário de fim (HH:MM).')
+  const editingEvent = useMemo(
+    () => (editingEventId ? events.find((e) => e.id === editingEventId) ?? null : null),
+    [editingEventId, events],
+  )
 
-    const startParsed = draft.startHHMM ? parseHHMM(draft.startHHMM) : null
-    const endParsed = draft.endHHMM ? parseHHMM(draft.endHHMM) : null
+  const editClientOptions = useMemo(() => {
+    if (!editDraft) return clients.filter((c) => c.active)
+    const active = clients.filter((c) => c.active)
+    const selected = editDraft.clientId ? clients.find((c) => c.id === editDraft.clientId) : null
+    if (selected && !selected.active) return [...active, selected]
+    return active
+  }, [clients, editDraft])
 
-    if (draft.startHHMM && !startParsed) errors.push('Formato inválido em Início (use HH:MM, 24h).')
-    if (draft.endHHMM && !endParsed) errors.push('Formato inválido em Fim (use HH:MM, 24h).')
-
-    if (startParsed && !isTimeAllowedInShift(draft.shift, startParsed.totalMinutes)) {
-      errors.push('Horário de início fora do turno selecionado.')
-    }
-    if (endParsed && !isTimeAllowedInShift(draft.shift, endParsed.totalMinutes)) {
-      errors.push('Horário de fim fora do turno selecionado.')
-    }
-
-    let startAt: Date | null = null
-    let endAt: Date | null = null
-
-    if (startParsed && endParsed && draft.shiftDate) {
-      startAt = toShiftDateTime(draft.shiftDate, draft.shift, startParsed.totalMinutes)
-      endAt = toShiftDateTime(draft.shiftDate, draft.shift, endParsed.totalMinutes)
-
-      if (endAt.getTime() <= startAt.getTime()) {
-        errors.push('Fim precisa ser depois do início.')
-      }
-    }
-
-    const needsNotes = categoriesRequiringNotes.has(draft.category)
-
-    const needsTruckPlate = draft.category === 'Produtivo' || draft.category === 'Em trânsito'
-    const needsContainer = draft.category === 'Produtivo'
-
-    // Cliente é obrigatório para TODAS as categorias
-    if (!draft.clientId) {
-      errors.push('Cliente obrigatório.')
-    } else {
-      const c = clients.find((x) => x.id === draft.clientId)
-      if (!c) errors.push('Cliente selecionado não existe (atualize a lista).')
-      else if (!c.active) errors.push('Cliente selecionado está inativo.')
-    }
-
-    if (needsTruckPlate) {
-      if (!draft.truckPlate.trim() || !isMercosulOrOldPlate(draft.truckPlate)) {
-        errors.push(`${draft.category}: Placa obrigatória e deve estar em formato válido.`)
-      }
-    }
-
-    if (needsContainer) {
-      if (!draft.containerId.trim() || !isContainerId(draft.containerId)) {
-        errors.push('Produtivo: Container obrigatório e deve estar em formato válido.')
-      }
-      // Observação é opcional em Produtivo
-    }
-
-    if (needsNotes) {
-      if (!draft.notes.trim()) errors.push(`${draft.category}: Observações obrigatória.`)
-    }
-
-    return { errors, startAt, endAt }
-  }, [draft, categoriesRequiringNotes, clients])
+  const editValidation = useMemo(() => {
+    if (!editDraft) return { errors: [], startAt: null, endAt: null }
+    return validateEventDraft(editDraft, clients, categoriesRequiringNotes, {
+      allowInactiveClientId: editingEvent?.clientId,
+    })
+  }, [editDraft, clients, categoriesRequiringNotes, editingEvent?.clientId])
 
   const filteredEvents = useMemo(() => {
     const from = filterFrom ? new Date(`${filterFrom}T00:00:00`) : null
@@ -957,6 +1242,8 @@ function FieldPage(props: {
             createdByEmail: data.createdByEmail as string | undefined,
             createdAt: toDateSafe(data.createdAt),
             updatedAt: toDateSafe(data.updatedAt),
+            updatedBy: data.updatedBy as string | undefined,
+            updatedByEmail: data.updatedByEmail as string | undefined,
             pump: (data.pump as Pump) ?? 1,
             shiftDate: (data.shiftDate as string) ?? '',
             shift: (data.shift as Shift) ?? 'MANHA',
@@ -988,6 +1275,11 @@ function FieldPage(props: {
     void loadEvents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.user.uid, props.user.role])
+
+  useEffect(() => {
+    if (editingEventId && !editingEvent) cancelEdit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingEventId, editingEvent])
 
 
   // setDraftPatch is defined above (used by masked time inputs)
@@ -1094,6 +1386,105 @@ function FieldPage(props: {
     setEndSlots(TIME_SLOTS_EMPTY)
   }
 
+  async function saveEdit() {
+    if (!editDraft || !editingEvent) return
+    if (props.user.role === 'OPERADOR') return
+    if (editValidation.errors.length > 0) return
+    if (!editValidation.startAt || !editValidation.endAt) return
+
+    const clientId = editDraft.clientId ? editDraft.clientId : undefined
+    if (!clientId) {
+      setEditError('Cliente obrigatório.')
+      return
+    }
+
+    setEditError(null)
+    setEditing(true)
+    const clientNameLookup = clientId ? clients.find((c) => c.id === clientId)?.name : undefined
+    const clientIdChanged = clientId !== editingEvent.clientId
+    const resolvedClientName = clientId
+      ? clientNameLookup ?? (clientIdChanged ? undefined : editingEvent.clientName)
+      : undefined
+
+    const truckPlate =
+      (editDraft.category === 'Produtivo' || editDraft.category === 'Em trânsito') && editDraft.truckPlate.trim()
+        ? editDraft.truckPlate.trim().toUpperCase()
+        : undefined
+    const containerId =
+      editDraft.category === 'Produtivo' && editDraft.containerId.trim()
+        ? editDraft.containerId.trim().toUpperCase()
+        : undefined
+    const notes = editDraft.notes.trim() ? editDraft.notes.trim() : undefined
+
+    const updateData: Record<string, unknown> = {
+      pump: editDraft.pump,
+      shiftDate: editDraft.shiftDate,
+      shift: editDraft.shift,
+      category: editDraft.category,
+      startAt: editValidation.startAt,
+      endAt: editValidation.endAt,
+      clientId,
+      updatedAt: serverTimestamp(),
+      updatedBy: props.user.uid,
+      updatedByEmail: props.user.email,
+    }
+
+    if (resolvedClientName) updateData.clientName = resolvedClientName
+    else if (clientIdChanged) updateData.clientName = deleteField()
+
+    updateData.truckPlate = truckPlate ? truckPlate : deleteField()
+    updateData.containerId = containerId ? containerId : deleteField()
+    updateData.notes = notes ? notes : deleteField()
+
+    const afterEvent: StoredEvent = {
+      ...editingEvent,
+      pump: editDraft.pump,
+      shiftDate: editDraft.shiftDate,
+      shift: editDraft.shift,
+      category: editDraft.category,
+      startAt: editValidation.startAt,
+      endAt: editValidation.endAt,
+      clientId,
+      clientName: resolvedClientName ?? (clientIdChanged ? undefined : editingEvent.clientName),
+      truckPlate,
+      containerId,
+      notes,
+      updatedAt: new Date(),
+      updatedBy: props.user.uid,
+      updatedByEmail: props.user.email,
+    }
+
+    const revisionPayload = {
+      eventId: editingEvent.id,
+      editedAt: serverTimestamp(),
+      editedBy: props.user.uid,
+      editedByEmail: props.user.email,
+      before: eventToPlain(editingEvent),
+      after: eventToPlain(afterEvent),
+    }
+
+    try {
+      const eventRef = doc(db, 'events', editingEvent.id)
+      const revisionRef = doc(db, 'events', editingEvent.id, 'revisions', nowId())
+      const batch = writeBatch(db)
+      batch.update(eventRef, updateData)
+      batch.set(revisionRef, revisionPayload)
+      await batch.commit()
+
+      setEvents((prev) => {
+        const next = prev.map((e) => (e.id === editingEvent.id ? afterEvent : e))
+        next.sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+        return next
+      })
+
+      cancelEdit()
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEditing(false)
+    }
+  }
+
   function exportCsv() {
     const header = [
       'shiftDate',
@@ -1135,6 +1526,15 @@ function FieldPage(props: {
 
   return (
     <div className="tp-page">
+      {showUpdateNotice ? (
+        <UpdateNoticeModal
+          onDismiss={() => {
+            persistUpdateNoticeDismissed()
+            setShowUpdateNotice(false)
+          }}
+        />
+      ) : null}
+
       <header className="tp-header">
         <div>
           <div style={{ fontWeight: 700 }}>Transbordo</div>
@@ -1539,7 +1939,18 @@ function FieldPage(props: {
                     <div style={{ fontWeight: 700 }}>
                       {e.shiftDate} • {e.shift} • B{e.pump} • {e.category}
                     </div>
-                    <div style={{ opacity: 0.8 }}>{formatDurationMinutes(e.startAt, e.endAt)}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div style={{ opacity: 0.8 }}>{formatDurationMinutes(e.startAt, e.endAt)}</div>
+                      {props.user.role !== 'OPERADOR' ? (
+                        <button
+                          type="button"
+                          onClick={() => startEdit(e)}
+                          disabled={Boolean(editingEventId && editingEventId !== e.id) || editing}
+                        >
+                          {editingEventId === e.id ? 'Editando' : 'Editar'}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
@@ -1580,6 +1991,203 @@ function FieldPage(props: {
                     <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
                       Criado por: {e.createdByEmail ?? e.createdBy}
                     </div>
+                  ) : null}
+
+                  {e.updatedAt ? (
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                      Editado em: {e.updatedAt.toLocaleString()}
+                      {e.updatedByEmail ? ` • por ${e.updatedByEmail}` : e.updatedBy ? ` • por ${e.updatedBy}` : ''}
+                    </div>
+                  ) : null}
+
+                  {editingEventId === e.id && editDraft ? (
+                    <form
+                      style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--tp-border)' }}
+                      onSubmit={(ev) => {
+                        ev.preventDefault()
+                        void saveEdit()
+                      }}
+                    >
+                      <div className="tp-grid-2">
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Bomba
+                          <select
+                            value={editDraft.pump}
+                            onChange={(ev) => setEditDraftPatch({ pump: Number(ev.target.value) as Pump })}
+                            style={{ padding: 8 }}
+                          >
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                          </select>
+                        </label>
+
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Categoria
+                          <select
+                            value={editDraft.category}
+                            onChange={(ev) => setEditDraftPatch({ category: ev.target.value as ActivityCategory })}
+                            style={{ padding: 8 }}
+                          >
+                            {categories.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="tp-grid-2" style={{ marginTop: 8 }}>
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Data do turno (dia de início)
+                          <input
+                            type="date"
+                            value={editDraft.shiftDate}
+                            onChange={(ev) => setEditDraftPatch({ shiftDate: ev.target.value })}
+                            style={{ padding: 8 }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Turno
+                          <select
+                            value={editDraft.shift}
+                            onChange={(ev) => setEditDraftPatch({ shift: ev.target.value as Shift })}
+                            style={{ padding: 8 }}
+                          >
+                            <option value="MANHA">Manhã (06:00–15:00)</option>
+                            <option value="NOITE">Tarde/Noite (15:00–00:48)</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="tp-grid-2" style={{ marginTop: 8 }}>
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Início (HH:MM)
+                          <input
+                            ref={editStartInputRef}
+                            value={slotsToMaskedHHMM(editStartSlots)}
+                            onKeyDown={(ev) => handleEditMaskedTimeKeyDown('start', ev)}
+                            onPaste={(ev) => handleEditMaskedTimePaste('start', ev)}
+                            onFocus={() => handleEditMaskedTimeFocus('start')}
+                            onClick={() => handleEditMaskedTimeFocus('start')}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            aria-label="Início (HH:MM)"
+                            style={{ padding: 8, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Fim (HH:MM)
+                          <input
+                            ref={editEndInputRef}
+                            value={slotsToMaskedHHMM(editEndSlots)}
+                            onKeyDown={(ev) => handleEditMaskedTimeKeyDown('end', ev)}
+                            onPaste={(ev) => handleEditMaskedTimePaste('end', ev)}
+                            onFocus={() => handleEditMaskedTimeFocus('end')}
+                            onClick={() => handleEditMaskedTimeFocus('end')}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            aria-label="Fim (HH:MM)"
+                            style={{ padding: 8, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                          />
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          Cliente (obrigatório)
+                          <select
+                            value={editDraft.clientId}
+                            onChange={(ev) => setEditDraftPatch({ clientId: ev.target.value })}
+                            style={{ padding: 8 }}
+                          >
+                            <option value="">Selecione…</option>
+                            {editClientOptions.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                                {!c.active ? ' (inativo)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        {editDraft.category === 'Produtivo' || editDraft.category === 'Em trânsito' ? (
+                          <>
+                            <label style={{ display: 'grid', gap: 6 }}>
+                              Placa (obrigatório em {editDraft.category})
+                              <input
+                                value={editDraft.truckPlate}
+                                onChange={(ev) => setEditDraftPatch({ truckPlate: ev.target.value })}
+                                placeholder="ABC1234 ou ABC1D23"
+                                style={{ padding: 8 }}
+                              />
+                            </label>
+
+                            {editDraft.category === 'Produtivo' ? (
+                              <label style={{ display: 'grid', gap: 6 }}>
+                                Container (obrigatório em Produtivo)
+                                <input
+                                  value={editDraft.containerId}
+                                  onChange={(ev) => setEditDraftPatch({ containerId: ev.target.value })}
+                                  placeholder="ABCD 123456-7"
+                                  style={{ padding: 8 }}
+                                />
+                              </label>
+                            ) : null}
+                          </>
+                        ) : null}
+
+                        {categoriesRequiringNotes.has(editDraft.category) ? (
+                          <label style={{ display: 'grid', gap: 6 }}>
+                            Observações (obrigatória em {editDraft.category})
+                            <input
+                              value={editDraft.notes}
+                              onChange={(ev) => setEditDraftPatch({ notes: ev.target.value })}
+                              placeholder="Descreva..."
+                              style={{ padding: 8 }}
+                            />
+                          </label>
+                        ) : editDraft.category === 'Produtivo' ? (
+                          <label style={{ display: 'grid', gap: 6 }}>
+                            Observações (opcional em Produtivo)
+                            <input
+                              value={editDraft.notes}
+                              onChange={(ev) => setEditDraftPatch({ notes: ev.target.value })}
+                              placeholder="Ex: Troca de container, ajuste..."
+                              style={{ padding: 8 }}
+                            />
+                          </label>
+                        ) : null}
+                      </div>
+
+                      {editValidation.errors.length > 0 ? (
+                        <div className="tp-panel-danger" style={{ marginTop: 8 }}>
+                          <div style={{ fontWeight: 700 }} className="tp-danger-text">
+                            Pendências
+                          </div>
+                          <ul style={{ margin: '8px 0 0 18px' }} className="tp-danger-text">
+                            {editValidation.errors.map((err) => (
+                              <li key={err}>{err}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {editError ? (
+                        <div style={{ marginTop: 8, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+                          {editError}
+                        </div>
+                      ) : null}
+
+                      <div className="tp-actions-row" style={{ marginTop: 10 }}>
+                        <button type="submit" disabled={editing || editValidation.errors.length > 0}>
+                          {editing ? 'Salvando…' : 'Salvar edição'}
+                        </button>
+                        <button type="button" onClick={cancelEdit} disabled={editing}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
                   ) : null}
                 </div>
               ))}

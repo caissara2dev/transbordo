@@ -77,6 +77,14 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/clients/$(clientId)).data.active == true;
     }
 
+    function clientIsValidForUpdate(clientId, oldClientId) {
+      return isNonEmptyString(clientId)
+        && (
+          (clientId == oldClientId)
+          || clientExistsAndIsActive(clientId)
+        );
+    }
+
     function hasOnlyAllowedEventKeys(data) {
       // Keep this list aligned with the frontend payload in [`save()`](transbordo-app/src/App.tsx:954)
       return data.keys().hasOnly([
@@ -84,6 +92,8 @@ service cloud.firestore {
         "createdByEmail",
         "createdAt",
         "updatedAt",
+        "updatedBy",
+        "updatedByEmail",
         "pump",
         "shiftDate",
         "shift",
@@ -112,6 +122,41 @@ service cloud.firestore {
         // Optional fields types
         && (!("createdByEmail" in data) || (data.createdByEmail is string))
         && (!("clientName" in data) || (data.clientName is string))
+
+        // Notes required depending on category
+        && (!categoryRequiresNotes(data.category) || (("notes" in data) && isNonEmptyString(data.notes)))
+
+        // Produtivo requires truckPlate + containerId
+        && (!categoryRequiresProdutivoFields(data.category)
+          || (("truckPlate" in data) && isNonEmptyString(data.truckPlate) && ("containerId" in data) && isNonEmptyString(data.containerId)))
+
+        // Em trânsito requires truckPlate (but NOT containerId)
+        && (!categoryRequiresTruckPlate(data.category)
+          || (("truckPlate" in data) && isNonEmptyString(data.truckPlate)))
+
+        // Optional keys whitelist (prevents unexpected data injection)
+        && hasOnlyAllowedEventKeys(data);
+    }
+
+    function isValidEventUpdate(data, old) {
+      return isValidPump(data.pump)
+        && isValidShiftDate(data.shiftDate)
+        && isValidShift(data.shift)
+        && isValidCategory(data.category)
+        && isTimeOrderValid(data.startAt, data.endAt)
+
+        // Immutable fields
+        && (data.createdBy == old.createdBy)
+        && (!("createdByEmail" in data) || data.createdByEmail == old.createdByEmail)
+        && (!("createdAt" in data) || data.createdAt == old.createdAt)
+
+        // Update audit
+        && ("updatedAt" in data)
+        && ("updatedBy" in data) && (data.updatedBy == request.auth.uid)
+        && ("updatedByEmail" in data) && (data.updatedByEmail is string)
+
+        // Client required for all categories (allow inactive if unchanged)
+        && clientIsValidForUpdate(data.clientId, old.clientId)
 
         // Notes required depending on category
         && (!categoryRequiresNotes(data.category) || (("notes" in data) && isNonEmptyString(data.notes)))
@@ -192,11 +237,18 @@ service cloud.firestore {
                     || resource.data.createdBy == request.auth.uid
                   );
 
-      // Updates are blocked for now because the app has no "edit event" UI yet.
-      // This avoids privilege escalation / tampering with immutable fields.
-      allow update: if false;
+      // Updates: only Supervisor/Admin, with strict schema and audit fields.
+      allow update: if isApproved()
+                    && isSupervisorOrAdmin()
+                    && isValidEventUpdate(request.resource.data, resource.data);
 
       allow delete: if false;
+    }
+
+    match /events/{eventId}/revisions/{revisionId} {
+      allow create: if isApproved() && isSupervisorOrAdmin();
+      allow read: if isApproved() && isSupervisorOrAdmin();
+      allow update, delete: if false;
     }
 
     // Default deny (explicit allow only)
