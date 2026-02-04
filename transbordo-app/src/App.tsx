@@ -1027,7 +1027,6 @@ function FieldPage(props: { user: User }) {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
-  const [eventsTruncated, setEventsTruncated] = useState(false)
 
   // Clients (for Produtivo dropdown)
   const [clients, setClients] = useState<Client[]>([])
@@ -2441,6 +2440,7 @@ function IndicatorsPage(props: { user: User }) {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
+  const [eventsTruncated, setEventsTruncated] = useState(false)
 
   const [clients, setClients] = useState<Client[]>([])
   const [loadingClients, setLoadingClients] = useState(false)
