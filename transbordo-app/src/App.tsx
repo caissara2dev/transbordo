@@ -31,6 +31,7 @@ type ThemeMode = 'system' | 'light' | 'dark'
 const THEME_STORAGE_KEY = 'tp.theme'
 const UPDATE_NOTICE_DISMISSED_KEY = 'tp.update_notice.dismissed'
 const SIDEBAR_OPEN_KEY = 'tp.sidebar.open'
+const EVENTS_LIMIT = 3000
 
 function readUpdateNoticeDismissed(): boolean {
   return localStorage.getItem(UPDATE_NOTICE_DISMISSED_KEY) === '1'
@@ -1026,6 +1027,7 @@ function FieldPage(props: { user: User }) {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
+  const [eventsTruncated, setEventsTruncated] = useState(false)
 
   // Clients (for Produtivo dropdown)
   const [clients, setClients] = useState<Client[]>([])
@@ -2496,9 +2498,10 @@ function IndicatorsPage(props: { user: User }) {
         where('shiftDate', '>=', range.from),
         where('shiftDate', '<=', range.to),
         orderBy('shiftDate', 'desc'),
-        limit(3000),
+        limit(EVENTS_LIMIT),
       )
       const snap = await getDocs(q)
+      setEventsTruncated(snap.size === EVENTS_LIMIT)
       const items: StoredEvent[] = snap.docs
         .map((d) => {
           const data = d.data() as Record<string, unknown>
@@ -2533,6 +2536,7 @@ function IndicatorsPage(props: { user: User }) {
       setEvents(items)
     } catch (e) {
       setEventsError(e instanceof Error ? e.message : String(e))
+      setEventsTruncated(false)
     } finally {
       setLoadingEvents(false)
     }
@@ -2807,6 +2811,12 @@ function IndicatorsPage(props: { user: User }) {
               {clientsError}
             </div>
           ) : null}
+
+          {eventsTruncated ? (
+            <div className="tp-panel-warning" style={{ marginTop: 10 }}>
+              Atenção: mostrando apenas os primeiros {EVENTS_LIMIT} registros. KPIs e CSV podem estar incompletos.
+            </div>
+          ) : null}
         </div>
 
           <div className="tp-kpi-grid">
@@ -2852,7 +2862,11 @@ function IndicatorsPage(props: { user: User }) {
             </div>
           ) : (
             <div className="tp-chart">
-              <ResponsiveContainer width="100%" height={chartHeight} onResize={(w) => setChartWidth(w)}>
+              <ResponsiveContainer
+                width="100%"
+                height={chartHeight}
+                onResize={(width, _height) => setChartWidth(width)}
+              >
                 <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
                   <XAxis dataKey="date" tickFormatter={formatShortDate} />
                   <YAxis
