@@ -3,6 +3,7 @@
     "rules": "firestore.rules"
   },
   "hosting": {
+    "site": "transbordo-6fc6f",
     "public": "transbordo-app/dist",
     "ignore": [
       "firebase.json",
