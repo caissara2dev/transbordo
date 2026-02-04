@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
+import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -29,6 +30,7 @@ type ThemeMode = 'system' | 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'tp.theme'
 const UPDATE_NOTICE_DISMISSED_KEY = 'tp.update_notice.dismissed'
+const SIDEBAR_OPEN_KEY = 'tp.sidebar.open'
 
 function readUpdateNoticeDismissed(): boolean {
   return localStorage.getItem(UPDATE_NOTICE_DISMISSED_KEY) === '1'
@@ -46,6 +48,14 @@ function readThemeMode(): ThemeMode {
 
 function persistThemeMode(mode: ThemeMode) {
   localStorage.setItem(THEME_STORAGE_KEY, mode)
+}
+
+function readSidebarOpen(): boolean {
+  return localStorage.getItem(SIDEBAR_OPEN_KEY) === '1'
+}
+
+function persistSidebarOpen(value: boolean) {
+  localStorage.setItem(SIDEBAR_OPEN_KEY, value ? '1' : '0')
 }
 
 function applyThemeMode(mode: ThemeMode) {
@@ -168,6 +178,33 @@ type ActivityCategory =
 
 type Shift = 'MANHA' | 'NOITE'
 
+const CATEGORIES: ActivityCategory[] = [
+  'Produtivo',
+  'Em trânsito',
+  'Aguardando laboratório',
+  'Sem caminhão',
+  'Sem container',
+  'Manutenção',
+  'Outros',
+]
+
+const CATEGORY_COLORS: Record<ActivityCategory, string> = {
+  Produtivo: '#16a34a',
+  'Em trânsito': '#2563eb',
+  'Aguardando laboratório': '#f59e0b',
+  'Sem caminhão': '#dc2626',
+  'Sem container': '#7c3aed',
+  Manutenção: '#0ea5e9',
+  Outros: '#64748b',
+}
+
+const NAV_ITEMS: Array<{ label: string; to: string; short: string; roles: Role[] }> = [
+  { label: 'Operação', to: '/app', short: 'OP', roles: ['OPERADOR', 'SUPERVISOR', 'ADMIN'] },
+  { label: 'Indicadores', to: '/app/indicadores', short: 'KP', roles: ['SUPERVISOR', 'ADMIN'] },
+]
+
+type DateRangePreset = 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM'
+
 type Client = {
   id: string
   name: string
@@ -216,6 +253,110 @@ type EditDraft = EventDraft & {
   pump: Pump
 }
 
+function AppShell(props: {
+  user: User
+  themeMode: ThemeMode
+  onThemeModeChange: (mode: ThemeMode) => void
+  onLogout: () => void
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => readSidebarOpen())
+
+  useEffect(() => {
+    persistSidebarOpen(sidebarOpen)
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [sidebarOpen])
+
+  const navItems = useMemo(() => NAV_ITEMS.filter((item) => item.roles.includes(props.user.role)), [props.user.role])
+
+  return (
+    <div className="tp-shell">
+      <div className={`tp-drawer ${sidebarOpen ? 'is-open' : ''}`} aria-hidden={!sidebarOpen}>
+        <div className="tp-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+        <aside className="tp-drawer__panel" id="tp-drawer-panel">
+          <div className="tp-sidebar__inner">
+            <div className="tp-sidebar__brand">
+              <span className="tp-sidebar__brand-text">Transbordo</span>
+              <button
+                type="button"
+                className="tp-sidebar__close"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Fechar menu"
+                title="Fechar menu"
+              >
+                X
+              </button>
+            </div>
+
+            <nav className="tp-sidebar__nav">
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/app'}
+                  onClick={() => setSidebarOpen(false)}
+                  className={({ isActive }) => `tp-sidebar__link ${isActive ? 'is-active' : ''}`}
+                >
+                  <span className="tp-sidebar__icon" aria-hidden="true">
+                    {item.short}
+                  </span>
+                  <span className="tp-sidebar__label">{item.label}</span>
+                </NavLink>
+              ))}
+            </nav>
+
+            <div className="tp-sidebar__footer">
+              <div className="tp-sidebar__user">{props.user.email}</div>
+              <div className="tp-sidebar__role">{props.user.role}</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div className="tp-shell-main">
+        <header className="tp-topbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              type="button"
+              className="tp-hamburger"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Abrir menu"
+              aria-expanded={sidebarOpen}
+              aria-controls="tp-drawer-panel"
+            >
+              <span className="tp-hamburger__bar" />
+              <span className="tp-hamburger__bar" />
+              <span className="tp-hamburger__bar" />
+            </button>
+            <div style={{ display: 'grid', gap: 2 }}>
+              <div style={{ fontWeight: 700 }}>Transbordo</div>
+              <div style={{ opacity: 0.8, fontSize: 13 }}>
+                {props.user.email} • {props.user.role}
+              </div>
+            </div>
+          </div>
+
+          <div className="tp-row-wrap">
+            <ThemeSelect mode={props.themeMode} onChange={props.onThemeModeChange} />
+            <button onClick={props.onLogout}>Sair</button>
+          </div>
+        </header>
+
+        <div className="tp-shell-content">
+          <Outlet />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function isMercosulOrOldPlate(value: string): boolean {
   const v = value.trim().toUpperCase()
   // Old format: ABC1234
@@ -253,6 +394,106 @@ function localISODate(date: Date = new Date()): string {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function addDays(date: Date, amount: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + amount)
+  return d
+}
+
+function startOfWeekMonday(date: Date): Date {
+  const d = startOfDay(date)
+  const day = d.getDay()
+  const diff = (day + 6) % 7
+  d.setDate(d.getDate() - diff)
+  return d
+}
+
+function endOfWeekMonday(date: Date): Date {
+  return addDays(startOfWeekMonday(date), 6)
+}
+
+function startOfMonth(date: Date): Date {
+  return startOfDay(new Date(date.getFullYear(), date.getMonth(), 1))
+}
+
+function endOfMonth(date: Date): Date {
+  return startOfDay(new Date(date.getFullYear(), date.getMonth() + 1, 0))
+}
+
+function formatMinutesAsHM(totalMinutes: number): string {
+  const safe = Math.max(0, Math.round(totalMinutes))
+  const hours = Math.floor(safe / 60)
+  const minutes = safe % 60
+  if (hours <= 0) return `${minutes} min`
+  if (minutes === 0) return `${hours}h`
+  return `${hours}h ${minutes}m`
+}
+
+function formatAxisHours(totalMinutes: number): string {
+  const safe = Math.max(0, Math.round(totalMinutes))
+  const hours = Math.floor(safe / 60)
+  return `${hours}h`
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%'
+  return `${value.toFixed(1).replace('.', ',')}%`
+}
+
+function formatShortDate(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00`)
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function getPresetRange(preset: DateRangePreset, baseDate: Date = new Date()): { from: string; to: string } {
+  const today = startOfDay(baseDate)
+
+  if (preset === 'TODAY') {
+    const iso = localISODate(today)
+    return { from: iso, to: iso }
+  }
+
+  if (preset === 'YESTERDAY') {
+    const y = addDays(today, -1)
+    const iso = localISODate(y)
+    return { from: iso, to: iso }
+  }
+
+  if (preset === 'WEEK') {
+    const start = startOfWeekMonday(today)
+    const end = endOfWeekMonday(today)
+    return { from: localISODate(start), to: localISODate(end) }
+  }
+
+  if (preset === 'LAST_WEEK') {
+    const start = addDays(startOfWeekMonday(today), -7)
+    const end = addDays(start, 6)
+    return { from: localISODate(start), to: localISODate(end) }
+  }
+
+  if (preset === 'MONTH') {
+    const start = startOfMonth(today)
+    const end = endOfMonth(today)
+    return { from: localISODate(start), to: localISODate(end) }
+  }
+
+  if (preset === 'LAST_MONTH') {
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const start = startOfMonth(lastMonth)
+    const end = endOfMonth(lastMonth)
+    return { from: localISODate(start), to: localISODate(end) }
+  }
+
+  const iso = localISODate(today)
+  return { from: iso, to: iso }
 }
 
 function toDateSafe(value: unknown): Date | undefined {
@@ -364,7 +605,7 @@ function App() {
         element={
           user ? (
             user.approved ? (
-              <FieldPage
+              <AppShell
                 user={user}
                 onLogout={() => signOut(auth)}
                 themeMode={themeMode}
@@ -382,7 +623,14 @@ function App() {
             <Navigate to="/login" replace />
           )
         }
-      />
+      >
+        {user && user.approved ? (
+          <>
+            <Route index element={<FieldPage user={user} />} />
+            <Route path="indicadores" element={<IndicatorsPage user={user} />} />
+          </>
+        ) : null}
+      </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
@@ -768,12 +1016,7 @@ function eventToPlain(e: StoredEvent): Record<string, unknown> {
   return data
 }
 
-function FieldPage(props: {
-  user: User
-  onLogout: () => void
-  themeMode: ThemeMode
-  onThemeModeChange: (mode: ThemeMode) => void
-}) {
+function FieldPage(props: { user: User }) {
   const todayISO = localISODate()
   const [showUpdateNotice, setShowUpdateNotice] = useState<boolean>(() => !readUpdateNoticeDismissed())
 
@@ -1119,16 +1362,6 @@ function FieldPage(props: {
     }
     applyEditSlots(kind, slots)
   }
-
-  const categories: ActivityCategory[] = [
-    'Produtivo',
-    'Em trânsito',
-    'Aguardando laboratório',
-    'Sem caminhão',
-    'Sem container',
-    'Manutenção',
-    'Outros',
-  ]
 
   const validation = useMemo(
     () => validateEventDraft(draft, clients, categoriesRequiringNotes),
@@ -1535,20 +1768,6 @@ function FieldPage(props: {
         />
       ) : null}
 
-      <header className="tp-header">
-        <div>
-          <div style={{ fontWeight: 700 }}>Transbordo</div>
-          <div style={{ opacity: 0.8, fontSize: 13 }}>
-            {props.user.email} • {props.user.role}
-          </div>
-        </div>
-
-        <div className="tp-row-wrap">
-          <ThemeSelect mode={props.themeMode} onChange={props.onThemeModeChange} />
-          <button onClick={props.onLogout}>Sair</button>
-        </div>
-      </header>
-
       <section className="tp-section">
         <div className="tp-row-wrap">
           <span style={{ fontWeight: 600 }}>Bomba:</span>
@@ -1654,7 +1873,7 @@ function FieldPage(props: {
             </div>
 
             <div className="tp-category-grid">
-              {categories.map((c) => (
+              {CATEGORIES.map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -1914,7 +2133,7 @@ function FieldPage(props: {
               Categoria
               <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value as 'ALL' | ActivityCategory)} style={{ padding: 8 }}>
                 <option value="ALL">Todas</option>
-                {categories.map((c) => (
+                {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -2028,7 +2247,7 @@ function FieldPage(props: {
                             onChange={(ev) => setEditDraftPatch({ category: ev.target.value as ActivityCategory })}
                             style={{ padding: 8 }}
                           >
-                            {categories.map((c) => (
+                            {CATEGORIES.map((c) => (
                               <option key={c} value={c}>
                                 {c}
                               </option>
@@ -2196,6 +2415,498 @@ function FieldPage(props: {
                   Mostrando os primeiros 200 registros (use filtros para refinar).
                 </div>
               ) : null}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <AppFooter />
+    </div>
+  )
+}
+
+function IndicatorsPage(props: { user: User }) {
+  const defaultRange = useMemo(() => getPresetRange('WEEK'), [])
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>('WEEK')
+  const [rangeFrom, setRangeFrom] = useState<string>(defaultRange.from)
+  const [rangeTo, setRangeTo] = useState<string>(defaultRange.to)
+
+  const [filterPump, setFilterPump] = useState<'ALL' | Pump>('ALL')
+  const [filterShift, setFilterShift] = useState<'ALL' | Shift>('ALL')
+  const [filterCategory, setFilterCategory] = useState<'ALL' | ActivityCategory>('ALL')
+  const [filterClientId, setFilterClientId] = useState<'ALL' | string>('ALL')
+
+  const [events, setEvents] = useState<StoredEvent[]>([])
+  const [loadingEvents, setLoadingEvents] = useState(false)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+
+  const [clients, setClients] = useState<Client[]>([])
+  const [loadingClients, setLoadingClients] = useState(false)
+  const [clientsError, setClientsError] = useState<string | null>(null)
+
+  const normalizedRange = useMemo(() => {
+    if (!rangeFrom || !rangeTo) return null
+    if (rangeFrom <= rangeTo) return { from: rangeFrom, to: rangeTo, inverted: false }
+    return { from: rangeTo, to: rangeFrom, inverted: true }
+  }, [rangeFrom, rangeTo])
+
+  const canView = props.user.role !== 'OPERADOR'
+
+  useEffect(() => {
+    if (rangePreset === 'CUSTOM') return
+    const preset = getPresetRange(rangePreset)
+    setRangeFrom(preset.from)
+    setRangeTo(preset.to)
+  }, [rangePreset])
+
+  useEffect(() => {
+    if (!canView) return
+    void (async () => {
+      setClientsError(null)
+      setLoadingClients(true)
+      try {
+        const base = collection(db, 'clients')
+        const q = query(base, orderBy('name', 'asc'), limit(5000))
+        const snap = await getDocs(q)
+        const items: Client[] = snap.docs
+          .map((d) => {
+            const data = d.data() as Record<string, unknown>
+            const name = (data.name as string) ?? ''
+            const active = (data.active as boolean) ?? true
+            if (!name.trim()) return null
+            return { id: d.id, name, active }
+          })
+          .filter(Boolean) as Client[]
+        setClients(items)
+      } catch (e) {
+        setClientsError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setLoadingClients(false)
+      }
+    })()
+  }, [canView])
+
+  async function loadEvents(range: { from: string; to: string }) {
+    setEventsError(null)
+    setLoadingEvents(true)
+    try {
+      const base = collection(db, 'events')
+      const q = query(
+        base,
+        where('shiftDate', '>=', range.from),
+        where('shiftDate', '<=', range.to),
+        orderBy('shiftDate', 'desc'),
+        limit(3000),
+      )
+      const snap = await getDocs(q)
+      const items: StoredEvent[] = snap.docs
+        .map((d) => {
+          const data = d.data() as Record<string, unknown>
+          const startAt = toDateSafe(data.startAt)
+          const endAt = toDateSafe(data.endAt)
+          if (!startAt || !endAt) return null
+
+          return {
+            id: d.id,
+            createdBy: (data.createdBy as string) ?? '',
+            createdByEmail: data.createdByEmail as string | undefined,
+            createdAt: toDateSafe(data.createdAt),
+            updatedAt: toDateSafe(data.updatedAt),
+            updatedBy: data.updatedBy as string | undefined,
+            updatedByEmail: data.updatedByEmail as string | undefined,
+            pump: (data.pump as Pump) ?? 1,
+            shiftDate: (data.shiftDate as string) ?? '',
+            shift: (data.shift as Shift) ?? 'MANHA',
+            category: (data.category as ActivityCategory) ?? 'Produtivo',
+            startAt,
+            endAt,
+            clientId: data.clientId as string | undefined,
+            clientName: data.clientName as string | undefined,
+            truckPlate: data.truckPlate as string | undefined,
+            containerId: data.containerId as string | undefined,
+            notes: data.notes as string | undefined,
+          }
+        })
+        .filter(Boolean) as StoredEvent[]
+
+      items.sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+      setEvents(items)
+    } catch (e) {
+      setEventsError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoadingEvents(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!canView || !normalizedRange) return
+    void loadEvents({ from: normalizedRange.from, to: normalizedRange.to })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView, normalizedRange?.from, normalizedRange?.to])
+
+  const filteredEvents = useMemo(() => {
+    return events.filter((e) => {
+      if (filterPump !== 'ALL' && e.pump !== filterPump) return false
+      if (filterShift !== 'ALL' && e.shift !== filterShift) return false
+      if (filterCategory !== 'ALL' && e.category !== filterCategory) return false
+      if (filterClientId !== 'ALL' && e.clientId !== filterClientId) return false
+      return true
+    })
+  }, [events, filterPump, filterShift, filterCategory, filterClientId])
+
+  const totalsByCategory = useMemo(() => {
+    const map = new Map<ActivityCategory, { minutes: number; count: number }>()
+    CATEGORIES.forEach((c) => map.set(c, { minutes: 0, count: 0 }))
+    filteredEvents.forEach((e) => {
+      const minutes = Math.max(0, Math.floor((e.endAt.getTime() - e.startAt.getTime()) / 60000))
+      const current = map.get(e.category) ?? { minutes: 0, count: 0 }
+      current.minutes += minutes
+      current.count += 1
+      map.set(e.category, current)
+    })
+    return map
+  }, [filteredEvents])
+
+  const totalMinutes = useMemo(() => {
+    let total = 0
+    filteredEvents.forEach((e) => {
+      total += Math.max(0, Math.floor((e.endAt.getTime() - e.startAt.getTime()) / 60000))
+    })
+    return total
+  }, [filteredEvents])
+
+  const productiveMinutes = totalsByCategory.get('Produtivo')?.minutes ?? 0
+  const totalEvents = filteredEvents.length
+  const avgMinutes = totalEvents > 0 ? totalMinutes / totalEvents : 0
+  const productivePercent = totalMinutes > 0 ? (productiveMinutes / totalMinutes) * 100 : 0
+
+  const summaryRows = useMemo(() => {
+    return CATEGORIES.map((category) => {
+      const data = totalsByCategory.get(category) ?? { minutes: 0, count: 0 }
+      const percent = totalMinutes > 0 ? (data.minutes / totalMinutes) * 100 : 0
+      return { category, minutes: data.minutes, count: data.count, percent }
+    })
+  }, [totalsByCategory, totalMinutes])
+
+  const chartData = useMemo(() => {
+    type ChartDatum = { date: string } & Partial<Record<ActivityCategory, number>>
+    const byDate = new Map<string, ChartDatum>()
+    filteredEvents.forEach((e) => {
+      const minutes = Math.max(0, Math.floor((e.endAt.getTime() - e.startAt.getTime()) / 60000))
+      const key = e.shiftDate
+      const entry: ChartDatum = byDate.get(key) ?? { date: key }
+      entry[e.category] = (entry[e.category] ?? 0) + minutes
+      byDate.set(key, entry)
+    })
+    return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
+  }, [filteredEvents])
+
+  const [chartWidth, setChartWidth] = useState<number>(0)
+
+  const chartHeight = useMemo(() => {
+    const baseHeight = 300
+    const itemsPerRow = chartWidth < 640 ? 2 : 4
+    const rows = Math.ceil(CATEGORIES.length / itemsPerRow)
+    const legendRows = Math.max(1, rows)
+    return baseHeight + legendRows * 24
+  }, [chartWidth])
+
+  const chartAxis = useMemo(() => {
+    if (chartData.length === 0) {
+      return { ticks: [0], max: 0 }
+    }
+
+    let maxMinutes = 0
+    chartData.forEach((row) => {
+      let total = 0
+      CATEGORIES.forEach((category) => {
+        const value = row[category]
+        if (typeof value === 'number') total += value
+      })
+      if (total > maxMinutes) maxMinutes = total
+    })
+
+    const maxRounded = Math.ceil(maxMinutes / 60) * 60
+    const maxValue = maxRounded <= 0 ? 0 : maxRounded
+    const ticks = Array.from({ length: Math.floor(maxValue / 60) + 1 }, (_, idx) => idx * 60)
+    return { ticks, max: maxValue }
+  }, [chartData])
+
+  const clientOptions = useMemo(() => {
+    return [...clients].sort((a, b) => a.name.localeCompare(b.name))
+  }, [clients])
+
+  function exportSummaryCsv() {
+    const header = ['Categoria', 'Tempo (min)', 'Tempo (h)', '% do total', 'Qtd. eventos']
+    const rows = summaryRows.map((row) => {
+      return [
+        csvEscape(row.category),
+        csvEscape(row.minutes),
+        csvEscape(formatMinutesAsHM(row.minutes)),
+        csvEscape(formatPercent(row.percent)),
+        csvEscape(row.count),
+      ].join(';')
+    })
+    const csv = [header.join(';'), ...rows].join('\n')
+    const name = `transbordo_indicadores_${normalizedRange?.from ?? 'all'}_${normalizedRange?.to ?? 'all'}.csv`
+    downloadCsv(name, csv)
+  }
+
+  if (!canView) {
+    return (
+      <div className="tp-page">
+        <h2>Indicadores</h2>
+        <p className="tp-muted">Acesso restrito. Somente Supervisor/Admin.</p>
+        <AppFooter />
+      </div>
+    )
+  }
+
+  return (
+    <div className="tp-page">
+      <section className="tp-section">
+        <div className="tp-card">
+          <div className="tp-card-header">
+            <div style={{ fontWeight: 700 }}>Filtros</div>
+            <div className="tp-row-wrap">
+              <button
+                type="button"
+                onClick={() => normalizedRange && void loadEvents({ from: normalizedRange.from, to: normalizedRange.to })}
+                disabled={!normalizedRange || loadingEvents}
+              >
+                {loadingEvents ? 'Carregando…' : 'Atualizar'}
+              </button>
+              <button type="button" onClick={exportSummaryCsv} disabled={summaryRows.length === 0}>
+                Exportar CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="tp-grid-3" style={{ marginTop: 10 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              Período
+              <select value={rangePreset} onChange={(e) => setRangePreset(e.target.value as DateRangePreset)} style={{ padding: 8 }}>
+                <option value="TODAY">Hoje</option>
+                <option value="YESTERDAY">Ontem</option>
+                <option value="WEEK">Semana atual</option>
+                <option value="LAST_WEEK">Semana passada</option>
+                <option value="MONTH">Mês atual</option>
+                <option value="LAST_MONTH">Mês passado</option>
+                <option value="CUSTOM">Personalizado</option>
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: 6 }}>
+              De
+              <input
+                type="date"
+                value={rangeFrom}
+                onChange={(e) => {
+                  setRangePreset('CUSTOM')
+                  setRangeFrom(e.target.value)
+                }}
+                style={{ padding: 8 }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: 6 }}>
+              Até
+              <input
+                type="date"
+                value={rangeTo}
+                onChange={(e) => {
+                  setRangePreset('CUSTOM')
+                  setRangeTo(e.target.value)
+                }}
+                style={{ padding: 8 }}
+              />
+            </label>
+          </div>
+
+          <div className="tp-grid-3" style={{ marginTop: 10 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              Bomba
+              <select
+                value={filterPump}
+                onChange={(e) => setFilterPump((e.target.value === 'ALL' ? 'ALL' : Number(e.target.value)) as 'ALL' | Pump)}
+                style={{ padding: 8 }}
+              >
+                <option value="ALL">Todas</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: 6 }}>
+              Turno
+              <select value={filterShift} onChange={(e) => setFilterShift(e.target.value as 'ALL' | Shift)} style={{ padding: 8 }}>
+                <option value="ALL">Todos</option>
+                <option value="MANHA">MANHA</option>
+                <option value="NOITE">NOITE</option>
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: 6 }}>
+              Categoria
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value as 'ALL' | ActivityCategory)}
+                style={{ padding: 8 }}
+              >
+                <option value="ALL">Todas</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="tp-grid-2" style={{ marginTop: 10 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              Cliente
+              <select
+                value={filterClientId}
+                onChange={(e) => setFilterClientId(e.target.value as 'ALL' | string)}
+                disabled={loadingClients}
+                style={{ padding: 8 }}
+              >
+                <option value="ALL">Todos</option>
+                {clientOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {!c.active ? ' (inativo)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Resumo</span>
+              <div className="tp-muted" style={{ fontSize: 13 }}>
+                {loadingEvents ? 'Carregando dados…' : `${filteredEvents.length} lançamento(s) no período`}
+              </div>
+            </div>
+          </div>
+
+          {normalizedRange?.inverted ? (
+            <div className="tp-panel-danger" style={{ marginTop: 10 }}>
+              Intervalo invertido. Usando {normalizedRange.from} → {normalizedRange.to}.
+            </div>
+          ) : null}
+
+          {eventsError ? (
+            <div style={{ marginTop: 10, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+              {eventsError}
+            </div>
+          ) : null}
+
+          {clientsError ? (
+            <div style={{ marginTop: 10, fontSize: 13, whiteSpace: 'pre-wrap' }} className="tp-danger-text">
+              {clientsError}
+            </div>
+          ) : null}
+        </div>
+
+          <div className="tp-kpi-grid">
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">Tempo Registrado</div>
+            <div className="tp-kpi-value">{formatMinutesAsHM(totalMinutes)}</div>
+          </div>
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">Tempo produtivo</div>
+            <div className="tp-kpi-value">{formatMinutesAsHM(productiveMinutes)}</div>
+          </div>
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">% produtivo</div>
+            <div className="tp-kpi-value">{formatPercent(productivePercent)}</div>
+          </div>
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">Tempo improdutivo</div>
+            <div className="tp-kpi-value">{formatMinutesAsHM(totalMinutes - productiveMinutes)}</div>
+          </div>
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">Qtd. lançamentos</div>
+            <div className="tp-kpi-value">{totalEvents}</div>
+          </div>
+          <div className="tp-kpi-card">
+            <div className="tp-kpi-label">Tempo médio</div>
+            <div className="tp-kpi-value">{formatMinutesAsHM(avgMinutes)}</div>
+          </div>
+        </div>
+
+        <div className="tp-card">
+          <div className="tp-card-header">
+            <div style={{ fontWeight: 700 }}>Tempo por categoria</div>
+            {normalizedRange ? (
+              <div className="tp-muted" style={{ fontSize: 12 }}>
+                {normalizedRange.from} → {normalizedRange.to}
+              </div>
+            ) : null}
+          </div>
+
+          {chartData.length === 0 ? (
+            <div className="tp-muted" style={{ marginTop: 10 }}>
+              Sem dados para o período selecionado.
+            </div>
+          ) : (
+            <div className="tp-chart">
+              <ResponsiveContainer width="100%" height={chartHeight} onResize={(w) => setChartWidth(w)}>
+                <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="date" tickFormatter={formatShortDate} />
+                  <YAxis
+                    tickFormatter={(value) => formatAxisHours(Number(value))}
+                    ticks={chartAxis.ticks}
+                    domain={[0, chartAxis.max]}
+                    allowDecimals={false}
+                    tickMargin={8}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatMinutesAsHM(Number(value))}
+                    labelFormatter={(label) => `Data: ${label}`}
+                  />
+                  <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 12 }} />
+                  {CATEGORIES.map((category) => (
+                    <Bar key={category} dataKey={category} stackId="total" fill={CATEGORY_COLORS[category]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        <div className="tp-card">
+          <div className="tp-card-header">
+            <div style={{ fontWeight: 700 }}>Resumo por categoria</div>
+          </div>
+
+          {summaryRows.length === 0 ? (
+            <div className="tp-muted" style={{ marginTop: 10 }}>
+              Sem dados para o período selecionado.
+            </div>
+          ) : (
+            <div className="tp-table-wrap">
+              <table className="tp-table">
+                <thead>
+                  <tr>
+                    <th>Categoria</th>
+                    <th>Tempo</th>
+                    <th>%</th>
+                    <th>Eventos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryRows.map((row) => (
+                    <tr key={row.category}>
+                      <td>{row.category}</td>
+                      <td>{formatMinutesAsHM(row.minutes)}</td>
+                      <td>{formatPercent(row.percent)}</td>
+                      <td>{row.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
